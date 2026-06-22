@@ -1,0 +1,66 @@
+// prisma/schema.prisma
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  shops     Shop[]   
+  orders    Order[]  
+  createdAt DateTime @default(now())
+}
+
+model Shop {
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique 
+  ownerId     String
+  owner       User      @relation(fields: [ownerId], references: [id])
+  products    Product[]
+  orders      Order[]
+  categories  Category[]
+  createdAt   DateTime  @default(now())
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  price       Float
+  shopId      String
+  shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@index([shopId]) 
+}
+
+model Order {
+  id          String   @id @default(uuid())
+  total       Float
+  shopId      String
+  shop        Shop     @relation(fields: [shopId], references: [id])
+  buyerId     String
+  buyer       User     @relation(fields: [buyerId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([shopId])
+}
+
+model Category {
+  id          String   @id @default(uuid())
+  name        String
+  shopId      String
+  shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@index([shopId])
+}

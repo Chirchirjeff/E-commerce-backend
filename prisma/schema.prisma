@@ -22,6 +22,8 @@ model User {
 model Shop {
   id          String    @id @default(uuid())
   name        String
+  businessDescription String?
+  businessLogo String?
   slug        String    @unique 
   ownerId     String
   owner       User      @relation(fields: [ownerId], references: [id])
@@ -32,20 +34,27 @@ model Shop {
 }
 
 model Product {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  price       Float
-  shopId      String
-  shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
+  id            String   @id @default(uuid())
+  name          String
+  description   String?
+  price         Float
+  stockQuantity Int      @default(0)
+  thumbnailUrl  String?
+  images        Json?
+  categoryId    String?
+  category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  shopId        String
+  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
 
   @@index([shopId]) 
+  @@index([categoryId])
 }
 
 model Order {
   id          String   @id @default(uuid())
   total       Float
+  status      String   @default("pending")
   shopId      String
   shop        Shop     @relation(fields: [shopId], references: [id])
   buyerId     String
@@ -60,6 +69,7 @@ model Category {
   name        String
   shopId      String
   shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  products    Product[]
   createdAt   DateTime @default(now())
 
   @@index([shopId])

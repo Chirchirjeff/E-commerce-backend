@@ -1,6 +1,6 @@
 // src/categories/categories.service.ts
 
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
@@ -9,11 +9,17 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 export class CategoriesService {
   constructor(private prisma: PrismaService) {}
 
-  async create(createCategoryDto: CreateCategoryDto, shopId: string) {
+  async create(
+    createCategoryDto: CreateCategoryDto,
+    shopId: string | undefined,
+    userId: string,
+  ) {
+    const resolvedShopId = await this.resolveShopId(shopId, userId);
+
     return this.prisma.client.category.create({
       data: {
-        name: createCategoryDto.name,
-        shopId: shopId,
+        name: createCategoryDto.name.trim(),
+        shopId: resolvedShopId,
       },
     });
   }
@@ -42,5 +48,30 @@ export class CategoriesService {
     return this.prisma.tenantClient.category.delete({
       where: { id },
     });
+  }
+
+  private async resolveShopId(shopId: string | undefined, userId: string) {
+    if (shopId) {
+      const shop = await this.prisma.client.shop.findFirst({
+        where: { id: shopId, ownerId: userId },
+        select: { id: true },
+      });
+      if (!shop) {
+        throw new NotFoundException('Shop not found for this seller');
+      }
+      return shop.id;
+    }
+
+    const shop = await this.prisma.client.shop.findFirst({
+      where: { ownerId: userId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+
+    if (!shop) {
+      throw new BadRequestException('Create a shop before adding categories');
+    }
+
+    return shop.id;
   }
 }

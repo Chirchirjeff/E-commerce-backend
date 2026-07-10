@@ -1,98 +1,153 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# E-Market Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS backend for the E-Market ecommerce platform. It provides APIs for authentication, shops, products, categories, users, orders, file uploads, and tenant-aware shop data access.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Tech Stack
 
-## Description
+- NestJS
+- TypeScript
+- Prisma ORM
+- PostgreSQL
+- JWT authentication
+- Express static file serving for uploaded media
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Features
 
-## Project setup
+- User registration and authentication
+- Shop creation and management
+- Product catalog management
+- Multiple product images stored as JSON metadata
+- Category management per shop
+- Order resources
+- Upload endpoint for product and shop media
+- Tenant middleware for shop-scoped requests
+- Global validation and exception handling
 
-```bash
-$ npm install
-```
+## Requirements
 
-## Compile and run the project
+- Node.js 22 or newer
+- npm
+- PostgreSQL database
 
-```bash
-# development
-$ npm run start
+## Setup
 
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
-```
-
-## Run tests
+Install dependencies:
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm install
 ```
 
-## Deployment
+Create a `.env` file in the backend directory:
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+```env
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
+JWT_SECRET="replace-with-a-secure-secret"
+PORT=4000
+NODE_ENV=development
+```
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Generate the Prisma client:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npx prisma generate
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Apply database migrations or push the schema:
 
-## Resources
+```bash
+npx prisma db push
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+Seed the database when needed:
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+npm run prisma:seed
+```
 
-## Support
+If the seed script is not exposed in `package.json`, run:
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```bash
+npx ts-node --transpile-only prisma/seed.ts
+```
 
-## Stay in touch
+## Running The App
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+Development:
 
-## License
+```bash
+npm run start:dev
+```
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Production build:
+
+```bash
+npm run build
+npm run start:prod
+```
+
+By default the API listens on:
+
+```text
+http://localhost:4000
+```
+
+Uploaded files are served from:
+
+```text
+/uploads/*
+```
+
+The `public/uploads` directory is ignored by Git because it contains runtime media files.
+
+## Useful Scripts
+
+```bash
+npm run build
+npm run start
+npm run start:dev
+npm run start:prod
+npm run lint
+npm run test
+npm run test:e2e
+npm run test:cov
+```
+
+## API Areas
+
+- `auth`: authentication and JWT handling
+- `users`: user resources
+- `shops`: seller shop resources
+- `products`: product resources and image metadata
+- `categories`: shop category resources
+- `orders`: order resources
+- `uploads`: media upload endpoint
+
+## Project Structure
+
+```text
+backend/
+  prisma/
+    schema.prisma
+    seed.ts
+    seeds/
+  public/
+    uploads/
+  src/
+    auth/
+    categories/
+    orders/
+    products/
+    shops/
+    uploads/
+    users/
+    app.module.ts
+    main.ts
+    prisma.service.ts
+    tenant.middleware.ts
+```
+
+## Notes
+
+- Keep secrets in `.env`; do not commit environment files.
+- Uploaded media should stay out of Git.
+- Regenerate Prisma client after schema changes.

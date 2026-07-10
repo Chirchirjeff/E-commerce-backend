@@ -1,92 +1,53 @@
-// src/prisma.service.ts
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
 
-import { Injectable, OnModuleInit, Scope, Inject, Logger } from '@nestjs/common';
-import * as PrismaAll from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { Pool } from 'pg';
-import { REQUEST } from '@nestjs/core';
-import type { Request } from 'express';
+@Injectable()
+export class PrismaService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(PrismaService.name);
 
-@Injectable({ scope: Scope.REQUEST })
-export class PrismaService implements OnModuleInit {
-  private static pool: Pool;
-  private static adapter: PrismaPg;
-  private static isConnected = false;
-  
-  private readonly logger = new Logger('PrismaService');
-  public client: any;
+  public client: PrismaClient;
 
-  constructor(@Inject(REQUEST) private request: Request) {
-    // FIXED: Read the unified connection string directly from process.env
+  constructor() {
     const connectionString = process.env.DATABASE_URL;
-    
+
     if (!connectionString) {
-      this.logger.error('❌ Missing DATABASE_URL in .env file!');
+      this.logger.error('Missing DATABASE_URL in .env file');
       process.exit(1);
     }
 
-    if (!PrismaService.pool) {
-      PrismaService.pool = new Pool({ 
-        connectionString,
-        max: 20, 
-      });
-      PrismaService.adapter = new PrismaPg(PrismaService.pool);
-    }
+    this.client = new PrismaClient({
+      log: [{ emit: 'event', level: 'error' }],
+    });
 
-    const DynamicClient = (PrismaAll as any).PrismaClient;
-    this.client = new DynamicClient({ adapter: PrismaService.adapter });
+    (this.client as any).$on('error', (event: { message: string }) => {
+      this.logger.error(`Prisma Client error: ${event.message}`);
+    });
   }
 
   async onModuleInit() {
-    if (!PrismaService.isConnected) {
-      try {
-        this.logger.log('Attempting to connect to PostgreSQL via PG Driver Adapter...');
-        await PrismaService.pool.query('SELECT 1');
-        PrismaService.isConnected = true;
-        this.logger.log('🎉 Database driver connection established and validated successfully!');
-      } catch (error) {
-        this.logger.error('❌ Database connection validation failed! Check your DATABASE_URL inside .env');
-        this.logger.error(error instanceof Error ? error.message : error);
-        process.exit(1);
-      }
-    }
+    try {
+      this.logger.log('Connecting to database...');
 
-    await this.client.$connect();
+      const result = await this.client.$queryRaw<Array<{ db: string; usr: string }>>`
+        SELECT current_database() as db, current_user as usr
+      `;
+
+      this.logger.log(`Database connection successful: ${result[0].db} as ${result[0].usr}`);
+      await this.client.$connect();
+      this.logger.log('Prisma client connected');
+    } catch (error) {
+      this.logger.error('Database connection failed');
+      this.logger.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+  }
+
+  async onModuleDestroy() {
+    await this.client.$disconnect();
+    this.logger.log('Database disconnected');
   }
 
   get tenantClient() {
-    const shopId = (this.request as any).shopId;
-
-    if (!shopId) {
-      return this.client; 
-    }
-
-    return this.client.$extends({
-      query: {
-        product: {
-          async findMany({ args, query }: any) {
-            args.where = { ...args.where, shopId };
-            return query(args);
-          },
-          async findUnique({ args, query }: any) {
-            return (this as any).findFirst({
-              where: { ...args.where, shopId },
-            });
-          },
-        },
-        category: {
-          async findMany({ args, query }: any) {
-            args.where = { ...args.where, shopId };
-            return query(args);
-          },
-        },
-        order: {
-          async findMany({ args, query }: any) {
-            args.where = { ...args.where, shopId };
-            return query(args);
-          },
-        },
-      },
-    });
+    return this.client;
   }
 }

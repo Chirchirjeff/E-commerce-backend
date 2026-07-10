@@ -7,6 +7,7 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CurrentShopId } from './../current-shop.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'; // Added: JWT protection guard
 import { TenantGuard } from '../auth/tenant.guard';   // Added: Store ownership cross-verification guard
+import { CurrentUser } from '../auth/current-user.decorator';
 
 @Controller('categories')
 export class CategoriesController {
@@ -15,10 +16,11 @@ export class CategoriesController {
   @Post()
   @UseGuards(JwtAuthGuard, TenantGuard) // SECURED: User must be logged in AND own this specific shop
   create(
-    @CurrentShopId() shopId: string, 
+    @CurrentShopId() shopId: string | undefined,
+    @CurrentUser() user: { id: string; email: string },
     @Body() createCategoryDto: CreateCategoryDto,
   ) {
-    return this.categoriesService.create(createCategoryDto, shopId);
+    return this.categoriesService.create(createCategoryDto, shopId, user.id);
   }
 
   @Get()

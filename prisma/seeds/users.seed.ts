@@ -1,29 +1,77 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
-export async function seedUsers(prisma: PrismaClient) {
-  console.log('🌱 Seeding users...');
-  const hashedPassword = await bcrypt.hash('Jeff@2003', 10);
+const prisma = new PrismaClient();
 
-  const vendorA = await prisma.user.upsert({
-    where: { email: 'nike_owner@test.com' },
-    update: {},
-    create: {
-      email: 'nike_owner@test.com',
-      password: hashedPassword,
-      name: 'Phil Knight',
-    },
+export async function seedRegularUsers(): Promise<User> {
+  console.log('🌱 Seeding regular users...');
+
+  // Admin user credentials (this is for the Customer/Shop owner account)
+  const adminEmail = 'admin@example.com';
+  const adminPassword = 'admin123456';
+
+  // Check if admin already exists
+  const existingAdmin = await prisma.user.findUnique({
+    where: { email: adminEmail },
   });
 
-  const vendorB = await prisma.user.upsert({
-    where: { email: 'adidas_owner@test.com' },
-    update: {},
-    create: {
-      email: 'adidas_owner@test.com',
-      password: hashedPassword,
-      name: 'Adi Dassler',
-    },
+  let admin: User;
+
+  if (existingAdmin) {
+    console.log(`  ✅ Admin user already exists: ${adminEmail}`);
+    admin = existingAdmin;
+  } else {
+    // Hash password
+    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+
+    // Create admin user
+    admin = await prisma.user.create({
+      data: {
+        email: adminEmail,
+        password: hashedPassword,
+        name: 'Admin User',
+      },
+    });
+
+    console.log(`  ✅ Admin user created: ${adminEmail}`);
+    console.log(`  📝 Password: ${adminPassword}`);
+  }
+
+  // Create a regular test user (optional)
+  const testUserEmail = 'test@example.com';
+  const testUserPassword = 'test123456';
+
+  const existingTestUser = await prisma.user.findUnique({
+    where: { email: testUserEmail },
   });
 
-  return { vendorA, vendorB };
+  if (!existingTestUser) {
+    const testHashedPassword = await bcrypt.hash(testUserPassword, 10);
+    
+    await prisma.user.create({
+      data: {
+        email: testUserEmail,
+        password: testHashedPassword,
+        name: 'Test User',
+      },
+    });
+    
+    console.log(`  ✅ Test user created: ${testUserEmail}`);
+    console.log(`  📝 Password: ${testUserPassword}`);
+  }
+
+  console.log('✅ Regular users seeding completed!');
+  return admin;
+}
+
+// If running directly
+if (require.main === module) {
+  seedRegularUsers()
+    .catch((e) => {
+      console.error('❌ User seeding failed:', e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
 }

@@ -1,15 +1,12 @@
-// src/products/products.module.ts
-
 import { Module } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { ProductsController } from './products.controller';
-import { PrismaService } from '../prisma.service'; // Added: Import your database bridge
+import { PrismaService } from '../prisma.service';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
+  imports: [AuthModule],
   controllers: [ProductsController],
-  providers: [
-    ProductsService, 
-    PrismaService // Added: Gives ProductsService access to the database context
-  ],
+  providers: [ProductsService, PrismaService],
 })
 export class ProductsModule {}

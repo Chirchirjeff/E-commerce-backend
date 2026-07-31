@@ -151,3 +151,37 @@ backend/
 - Keep secrets in `.env`; do not commit environment files.
 - Uploaded media should stay out of Git.
 - Regenerate Prisma client after schema changes.
+
+
+🔑 Admin Credentials:
+   Super Admin:
+   Email: superadmin@example.com
+   Password: SuperAdmin123!
+   Role: Super Admin
+
+   KYC Officer:
+   Email: officer@example.com
+   Password: Officer123!
+   Role: KYC Officer
+
+   Compliance HOD:
+   Email: compliance@example.com
+   Password: Compliance123!
+   Role: Compliance HOD
+
+   Support Admin:
+   Email: support@example.com
+   Password: Support123!
+   Role: Support Admin
+
+📝 Regular User Credentials:
+   Admin User (Shop Owner):
+   Email: admin@example.com
+   Password: admin123456
+   Role: Regular User
+
+   Test User:
+   Email: test@example.com
+   Password: test123456
+   Role: Regular User
+================================

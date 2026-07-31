@@ -1,19 +1,30 @@
-// src/auth/auth.module.ts
-
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtAuthGuard } from './jwt-auth.guard';
+import { PermissionsGuard } from './guards/permissions.guard';
+import { PrismaModule } from '../prisma.module';
 
 @Module({
   imports: [
     JwtModule.register({
-      global: true, // Makes JwtService available everywhere across our app
-      secret: process.env.JWT_SECRET || 'fallback_secret_key',
-      signOptions: { expiresIn: '7d' }, // Token lasts 7 days
+      secret: process.env.JWT_SECRET || 'your-secret-key',
+      signOptions: { expiresIn: '7d' },
     }),
+    PrismaModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService,],
+  providers: [
+    AuthService,
+    JwtAuthGuard,
+    PermissionsGuard,
+  ],
+  exports: [
+    AuthService,
+    JwtAuthGuard,
+    PermissionsGuard,
+    JwtModule,
+  ],
 })
 export class AuthModule {}

@@ -1,4 +1,4 @@
-// prisma/schema.prisma
+// Complete schema for multivendor ecommerce platform with RBAC
 
 datasource db {
   provider = "postgresql"
@@ -9,68 +9,342 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// ========================================
+// AUTH & RBAC MODELS
+// ========================================
+
+model Admin {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password      String
+  name          String
+  roleId        String
+  role          Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // KYC Reviews
+  kycReviews    KYCReview[]
+
+  @@index([roleId])
+  @@index([email])
+  @@index([isActive])
+  @@map("admins")
+}
+
+model Role {
+  id            String    @id @default(uuid())
+  name          String    @unique
+  description   String?
+  isSystem      Boolean   @default(false) // System roles cannot be deleted
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  admins        Admin[]
+  permissions   RolePermission[]
+
+  @@index([name])
+  @@map("roles")
+}
+
+model Permission {
+  id            String    @id @default(uuid())
+  name          String    @unique // e.g., "can_verify_clients", "can_manage_roles"
+  description   String?
+  category      String?   // e.g., "KYC", "Admin", "Reports", "Dashboard"
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  roles         RolePermission[]
+
+  @@index([name])
+  @@index([category])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id            String    @id @default(uuid())
+  roleId        String
+  permissionId  String
+  createdAt     DateTime  @default(now())
+
+  // Relations
+  role          Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission    Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// ========================================
+// USER MODELS (Existing)
+// ========================================
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
   password  String
   name      String
-  shops     Shop[]   
-  orders    Order[]  
+  phone     String?
+  shops     Shop[]
+  orders    Order[]
+  reviews   Review[]
+  kyc       KYC?     // One-to-one with KYC
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
 }
+
+// ========================================
+// SHOP & PRODUCT MODELS
+// ========================================
 
 model Shop {
   id          String    @id @default(uuid())
   name        String
   businessDescription String?
   businessLogo String?
-  slug        String    @unique 
+  slug        String    @unique
   ownerId     String
-  owner       User      @relation(fields: [ownerId], references: [id])
+  owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  
+  // Contact Information (Added for KYC approval)
+  contactEmail String?   // Business contact email
+  contactPhone String?   // Business contact phone
+  
+  // Verification Status
+  verificationStatus String @default("PENDING") // PENDING, DOCS_VERIFIED, COMPLIANCE_REVIEW, ACTIVE, REJECTED, ESCALATED
+  verifiedAt  DateTime?
+  verifiedBy  String?   // Admin ID who verified
+  rejectionReason String?
+  
   products    Product[]
   orders      Order[]
   categories  Category[]
+  reviews     Review[]
+  payouts     Payout[]
   createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([ownerId])
+  @@index([slug])
+  @@index([verificationStatus])
+  @@map("shops")
 }
 
 model Product {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   name          String
   description   String?
   price         Float
-  stockQuantity Int      @default(0)
+  stockQuantity Int       @default(0)
   thumbnailUrl  String?
   images        Json?
   categoryId    String?
   category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   shopId        String
-  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  createdAt     DateTime @default(now())
-
-  @@index([shopId]) 
-  @@index([categoryId])
-}
-
-model Order {
-  id          String   @id @default(uuid())
-  total       Float
-  status      String   @default("pending")
-  shopId      String
-  shop        Shop     @relation(fields: [shopId], references: [id])
-  buyerId     String
-  buyer       User     @relation(fields: [buyerId], references: [id])
-  createdAt   DateTime @default(now())
+  shop          Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  reviews       Review[]
+  orderItems    OrderItem[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([shopId])
+  @@index([categoryId])
+  @@index([price])
+  @@map("products")
 }
 
 model Category {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   name        String
   shopId      String
-  shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shop        Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
   products    Product[]
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([shopId])
+  @@unique([shopId, name])
+  @@map("categories")
+}
+
+// ========================================
+// ORDER MODELS
+// ========================================
+
+model Order {
+  id          String      @id @default(uuid())
+  total       Float
+  status      String      @default("pending")
+  shopId      String
+  shop        Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  buyerId     String
+  buyer       User        @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  items       OrderItem[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([shopId])
+  @@index([buyerId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int
+  price     Float
+  subtotal  Float
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+// ========================================
+// REVIEW MODEL
+// ========================================
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int
+  comment   String?
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  status    String   @default("pending")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, userId])
+  @@index([productId])
+  @@index([shopId])
+  @@index([userId])
+  @@index([status])
+  @@index([rating])
+  @@map("reviews")
+}
+
+// ========================================
+// PAYOUT MODEL
+// ========================================
+
+model Payout {
+  id          String   @id @default(uuid())
+  shopId      String
+  shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  amount      Float
+  period      String
+  status      String   @default("pending")
+  reference   String?
+  createdAt   DateTime @default(now())
+  processedAt DateTime?
+
+  @@index([shopId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("payouts")
+}
+
+// ========================================
+// PLATFORM SETTINGS
+// ========================================
+
+model PlatformSettings {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("platform_settings")
+}
+
+// ========================================
+// KYC MODELS (NEW)
+// ========================================
+
+model KYC {
+  id               String      @id @default(uuid())
+  userId           String      @unique
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Business Information
+  businessName     String
+  businessAddress  String
+  taxId            String
+  phone            String
+  description      String?
+  
+  // Document URLs
+  idFile           String      // URL to government ID
+  businessLicense  String      // URL to business license
+  additionalDocs   Json?       // Additional documents as JSON array
+  
+  // Status
+  status           KYCStatus   @default(NOT_SUBMITTED)
+  message          String?     // Admin feedback
+  
+  // Review Information
+  reviewedBy       String?     // Admin ID who reviewed
+  reviewedAt       DateTime?
+  
+  // Timestamps
+  submittedAt      DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  // Relations
+  reviews          KYCReview[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([submittedAt])
+  @@map("kyc")
+}
+
+model KYCReview {
+  id               String      @id @default(uuid())
+  kycId            String
+  kyc              KYC         @relation(fields: [kycId], references: [id], onDelete: Cascade)
+  adminId          String
+  admin            Admin       @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  
+  status           KYCStatus
+  comment          String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@index([kycId])
+  @@index([adminId])
+  @@index([status])
+  @@map("kyc_reviews")
+}
+
+// ========================================
+// ENUMS
+// ========================================
+
+enum KYCStatus {
+  NOT_SUBMITTED
+  PENDING
+  VERIFIED
+  REJECTED
 }

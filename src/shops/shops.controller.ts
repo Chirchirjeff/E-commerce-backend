@@ -1,68 +1,57 @@
-// src/shops/shops.controller.ts
-
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Patch,
-  Param,
-  UseGuards,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, UseGuards, Query, Req } from '@nestjs/common';
 import { ShopsService } from './shops.service';
-import { CreateShopDto } from './dto/create-shop.dto';
-import { UpdateShopDto } from './dto/update-shop.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { CurrentUser } from '../auth/current-user.decorator';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { RequirePermissions } from '../auth/decorators/permissions.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @Controller('shops')
+@UseGuards(PermissionsGuard)
 export class ShopsController {
   constructor(private readonly shopsService: ShopsService) {}
 
-  @Post()
-  @UseGuards(JwtAuthGuard) // Guarded: Must have an active JWT login session
-  create(
-    @Body() createShopDto: CreateShopDto,
-    @CurrentUser() user: { id: string; email: string },
-  ) {
-    // Pass down the verified user ID as the owner
-    return this.shopsService.create(createShopDto, user.id);
-  }
-
   @Get()
-  findAll() {
-    return this.shopsService.findAll();
+  async findAll(@Query('limit') limit?: string, @Query('page') page?: string) {
+    return this.shopsService.findAll(
+      limit ? parseInt(limit) : 10,
+      page ? parseInt(page) : 1,
+    );
   }
 
+  /**
+   * Get the current seller's own shop(s).
+   * Must be declared BEFORE :id to avoid "me" being treated as an ID.
+   */
   @Get('me')
-  @UseGuards(JwtAuthGuard)
-  findMine(@CurrentUser() user: { id: string; email: string }) {
-    return this.shopsService.findMine(user.id);
-  }
-
-  @Get('slug/:slug')
-  findBySlug(@Param('slug') slug: string) {
-    return this.shopsService.findBySlug(slug);
+  async findMine(@Req() req: any) {
+    return this.shopsService.findMine(req.user.id);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
+  async findOne(@Param('id') id: string) {
     return this.shopsService.findOne(id);
   }
 
-  @Patch(':id')
-  @UseGuards(JwtAuthGuard)
-  async update(
-    @Param('id') id: string,
-    @Body() updateShopDto: UpdateShopDto,
-    @CurrentUser() user: { id: string; email: string },
-  ) {
-    const shop = await this.shopsService.findOne(id);
-    if (shop.ownerId !== user.id) {
-      throw new ForbiddenException('You do not own this shop');
-    }
+  @Get(':id/stats')
+  async getStats(@Param('id') id: string) {
+    return this.shopsService.getShopStats(id);
+  }
 
+  @Post()
+  async create(@Body() createShopDto: any, @CurrentUser() user: any) {
+    return this.shopsService.create(createShopDto, user.id);
+  }
+
+  @Put(':id')
+  @RequirePermissions('can_manage_shops')
+  async update(@Param('id') id: string, @Body() updateShopDto: any) {
+    return this.shopsService.update(id, updateShopDto);
+  }
+
+  /**
+   * Partial update — used by use-shop.ts useUpdateShop mutation.
+   */
+  @Patch(':id')
+  async partialUpdate(@Param('id') id: string, @Body() updateShopDto: any, @Req() req: any) {
     return this.shopsService.update(id, updateShopDto);
   }
 }

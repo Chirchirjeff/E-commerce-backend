@@ -1,35 +1,46 @@
-// src/app.module.ts
-
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma.module';
-import { TenantMiddleware } from './tenant.middleware'; // FIXED: Path corrected to current directory
+import { TenantMiddleware } from './tenant.middleware';
 import { CategoriesModule } from './categories/categories.module';
 import { AuthModule } from './auth/auth.module';
-import { ShopsModule } from './shops/shops.module'; // FIXED: Importing the Module, not individual pieces
+import { ShopsModule } from './shops/shops.module';
 import { ProductsModule } from './products/products.module';
 import { UsersModule } from './users/users.module';
 import { UploadsController } from './uploads/uploads.controller';
 import { OrdersModule } from './orders/orders.module';
+import { AnalyticsModule } from './analytics/analytics.module';
+import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { KycModule } from './kyc/kyc.module';
 
 @Module({
   imports: [
     AuthModule,
-    ShopsModule, // FIXED: Registered the clean module wrapper here
+    ShopsModule,
     CategoriesModule,
     PrismaModule,
     ProductsModule,
     UsersModule,
     OrdersModule,
+    AnalyticsModule,
+    KycModule,
   ],
   controllers: [AppController, UploadsController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Make JwtAuthGuard global - applies to all routes
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(TenantMiddleware)
-      .forRoutes('*'); // Apply tenant isolation logic globally across all module routes
+      .forRoutes('*');
   }
 }

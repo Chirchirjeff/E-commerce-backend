@@ -1,20 +1,54 @@
-// prisma/seeds/categories.seed.ts
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Shop, Category } from '@prisma/client';
 
-export async function seedCategories(prisma: PrismaClient, shops: any) {
-  console.log('📁 Seeding categories...');
+const prisma = new PrismaClient();
 
-  const catNikeShoes = await prisma.category.create({
-    data: { name: 'Footwear', shopId: shops.shopA.id },
-  });
+const CATEGORIES = [
+  'Electronics',
+  'Clothing & Fashion',
+  'Home & Garden',
+  'Books & Media',
+  'Food & Beverages',
+  'Health & Beauty',
+  'Sports & Outdoors',
+  'Toys & Games',
+];
 
-  const catNikeApparel = await prisma.category.create({
-    data: { name: 'Apparel', shopId: shops.shopA.id },
-  });
+export async function seedCategories(shop: Shop): Promise<Record<string, string>> {
+  console.log('🌱 Seeding categories...');
 
-  const catAdidasShoes = await prisma.category.create({
-    data: { name: 'Running Shoes', shopId: shops.shopB.id },
-  });
+  const categoryMap: Record<string, string> = {};
 
-  return { catNikeShoes, catNikeApparel, catAdidasShoes };
+  for (const categoryName of CATEGORIES) {
+    const existingCategory = await prisma.category.findFirst({
+      where: {
+        name: categoryName,
+        shopId: shop.id,
+      },
+    });
+
+    let category: Category;
+
+    if (existingCategory) {
+      category = existingCategory;
+      console.log(`  ⏭️ Category already exists: ${categoryName}`);
+    } else {
+      category = await prisma.category.create({
+        data: {
+          name: categoryName,
+          shopId: shop.id,
+        },
+      });
+      console.log(`  ✅ Category created: ${categoryName}`);
+    }
+
+    categoryMap[categoryName] = category.id;
+  }
+
+  console.log('✅ Categories seeding completed!');
+  return categoryMap;
+}
+
+// If running directly
+if (require.main === module) {
+  console.log('⚠️ This seeder should be called from the main seed.ts file');
 }

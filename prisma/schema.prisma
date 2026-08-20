@@ -14,19 +14,19 @@ generator client {
 // ========================================
 
 model Admin {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  password      String
-  name          String
-  roleId        String
-  role          Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
-  isActive      Boolean   @default(true)
-  lastLoginAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id          String    @id @default(uuid())
+  email       String    @unique
+  password    String
+  name        String
+  roleId      String
+  role        Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   // KYC Reviews
-  kycReviews    KYCReview[]
+  kycReviews KYCReview[]
 
   @@index([roleId])
   @@index([email])
@@ -35,31 +35,31 @@ model Admin {
 }
 
 model Role {
-  id            String    @id @default(uuid())
-  name          String    @unique
-  description   String?
-  isSystem      Boolean   @default(false) // System roles cannot be deleted
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isSystem    Boolean  @default(false) // System roles cannot be deleted
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Relations
-  admins        Admin[]
-  permissions   RolePermission[]
+  admins      Admin[]
+  permissions RolePermission[]
 
   @@index([name])
   @@map("roles")
 }
 
 model Permission {
-  id            String    @id @default(uuid())
-  name          String    @unique // e.g., "can_verify_clients", "can_manage_roles"
-  description   String?
-  category      String?   // e.g., "KYC", "Admin", "Reports", "Dashboard"
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id          String   @id @default(uuid())
+  name        String   @unique // e.g., "can_verify_clients", "can_manage_roles"
+  description String?
+  category    String? // e.g., "KYC", "Admin", "Reports", "Dashboard"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Relations
-  roles         RolePermission[]
+  roles RolePermission[]
 
   @@index([name])
   @@index([category])
@@ -67,14 +67,14 @@ model Permission {
 }
 
 model RolePermission {
-  id            String    @id @default(uuid())
-  roleId        String
-  permissionId  String
-  createdAt     DateTime  @default(now())
+  id           String   @id @default(uuid())
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
 
   // Relations
-  role          Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission    Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@unique([roleId, permissionId])
   @@index([roleId])
@@ -95,7 +95,7 @@ model User {
   shops     Shop[]
   orders    Order[]
   reviews   Review[]
-  kyc       KYC?     // One-to-one with KYC
+  kyc       KYC? // One-to-one with KYC
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -107,31 +107,38 @@ model User {
 // ========================================
 
 model Shop {
-  id          String    @id @default(uuid())
-  name        String
+  id                  String  @id @default(uuid())
+  name                String
   businessDescription String?
-  businessLogo String?
-  slug        String    @unique
-  ownerId     String
-  owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  
+  businessLogo        String?
+  coverPhoto          String? // Shop cover/banner photo displayed in marketplace
+  slug                String  @unique
+  ownerId             String
+  owner               User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
   // Contact Information (Added for KYC approval)
-  contactEmail String?   // Business contact email
-  contactPhone String?   // Business contact phone
-  
+  contactEmail String? // Business contact email
+  contactPhone String? // Business contact phone
+
   // Verification Status
-  verificationStatus String @default("PENDING") // PENDING, DOCS_VERIFIED, COMPLIANCE_REVIEW, ACTIVE, REJECTED, ESCALATED
-  verifiedAt  DateTime?
-  verifiedBy  String?   // Admin ID who verified
-  rejectionReason String?
-  
-  products    Product[]
-  orders      Order[]
-  categories  Category[]
-  reviews     Review[]
-  payouts     Payout[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  verificationStatus String    @default("PENDING") // PENDING, DOCS_VERIFIED, COMPLIANCE_REVIEW, ACTIVE, REJECTED, ESCALATED
+  verifiedAt         DateTime?
+  verifiedBy         String? // Admin ID who verified
+  rejectionReason    String?
+
+  products   Product[]
+  orders     Order[]
+  categories Category[]
+  reviews    Review[]
+  payouts    Payout[]
+
+  // New relations
+  collections SellerCollection[]
+  tags        SellerTag[]
+  shopLinks   ShopLink[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([ownerId])
   @@index([slug])
@@ -140,39 +147,359 @@ model Shop {
 }
 
 model Product {
-  id            String    @id @default(uuid())
+  id            String  @id @default(uuid())
   name          String
   description   String?
   price         Float
-  stockQuantity Int       @default(0)
+  stockQuantity Int     @default(0)
   thumbnailUrl  String?
   images        Json?
-  categoryId    String?
-  category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  shopId        String
-  shop          Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  reviews       Review[]
-  orderItems    OrderItem[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+
+  // Marketplace category (required)
+  marketplaceCategoryId String
+  marketplaceCategory   MarketplaceCategory @relation(fields: [marketplaceCategoryId], references: [id], onDelete: Restrict)
+
+  // Legacy shop-scoped category (deprecated, kept for backward compatibility)
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  reviews    Review[]
+  orderItems OrderItem[]
+
+  // New relations
+  attributeValues ProductAttributeValue[]
+  collections     ProductCollection[]
+  tags            ProductTag[]
+  productLinks    ProductLink[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([shopId])
   @@index([categoryId])
+  @@index([marketplaceCategoryId])
   @@index([price])
   @@map("products")
 }
 
-model Category {
-  id          String    @id @default(uuid())
-  name        String
-  shopId      String
-  shop        Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  products    Product[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+// ========================================
+// MARKETPLACE CATEGORY HIERARCHY
+// ========================================
 
+model MarketplaceCategory {
+  id          String                @id @default(uuid())
+  name        String                @unique
+  slug        String                @unique
+  description String?
+  parentId    String?
+  parent      MarketplaceCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    MarketplaceCategory[] @relation("CategoryHierarchy")
+  level       Int                   @default(0) // 0 = root, 1 = level 1, etc.
+  sortOrder   Int                   @default(0)
+  isActive    Boolean               @default(true)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  // Relations
+  products   Product[]
+  attributes CategoryAttribute[]
+
+  @@index([parentId])
+  @@index([slug])
+  @@index([isActive])
+  @@index([level])
+  @@map("marketplace_categories")
+}
+
+// ========================================
+// CATEGORY ATTRIBUTES
+// ========================================
+
+model Attribute {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  type        String // text, number, boolean, select, multiselect, date
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  categoryAttributes CategoryAttribute[]
+  productValues      ProductAttributeValue[]
+
+  @@index([slug])
+  @@map("attributes")
+}
+
+model CategoryAttribute {
+  id          String              @id @default(uuid())
+  categoryId  String
+  category    MarketplaceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  attributeId String
+  attribute   Attribute           @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+
+  // Flags
+  required       Boolean @default(false)
+  filterable     Boolean @default(false)
+  variantAllowed Boolean @default(false)
+  searchable     Boolean @default(false)
+
+  // Display
+  sortOrder Int @default(0)
+
+  // Options for select/multiselect attributes (JSON array)
+  options Json? // e.g., ["Red", "Blue", "Green"]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([categoryId, attributeId])
+  @@index([categoryId])
+  @@index([attributeId])
+  @@map("category_attributes")
+}
+
+model ProductAttributeValue {
+  id          String    @id @default(uuid())
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attributeId String
+  attribute   Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+
+  // Value can be text, number, boolean, date, or select value
+  value String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, attributeId])
+  @@index([productId])
+  @@index([attributeId])
+  @@map("product_attribute_values")
+}
+
+// ========================================
+// SELLER COLLECTIONS (Seller Organization)
+// ========================================
+
+model SellerCollection {
+  id          String   @id @default(uuid())
+  sellerId    String
+  seller      Shop     @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String
+  description String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  products ProductCollection[]
+
+  @@unique([sellerId, slug])
+  @@index([sellerId])
+  @@index([isActive])
+  @@map("seller_collections")
+}
+
+model ProductCollection {
+  id           String           @id @default(uuid())
+  productId    String
+  product      Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  collectionId String
+  collection   SellerCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime         @default(now())
+
+  @@unique([productId, collectionId])
+  @@index([productId])
+  @@index([collectionId])
+  @@map("product_collections")
+}
+
+// ========================================
+// SELLER TAGS (Seller-defined Tags)
+// ========================================
+
+model SellerTag {
+  id        String   @id @default(uuid())
+  sellerId  String
+  seller    Shop     @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  name      String
+  slug      String
+  color     String? // Optional: for UI display
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  products ProductTag[]
+
+  @@unique([sellerId, slug])
+  @@index([sellerId])
+  @@map("seller_tags")
+}
+
+model ProductTag {
+  id        String    @id @default(uuid())
+  productId String
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tagId     String
+  tag       SellerTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+
+  @@unique([productId, tagId])
+  @@index([productId])
+  @@index([tagId])
+  @@map("product_tags")
+}
+
+// ========================================
+// SHOP LINKS (SOCIAL MEDIA REFERRAL)
+// ========================================
+
+model ShopLink {
+  id                String   @id @default(uuid())
+  shopId            String
+  shop              Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  
+  // Unique token for the link
+  token             String   @unique @default(uuid())
+  
+  // Link metadata
+  title             String? // Custom title for the link (e.g., "Instagram Campaign")
+  description       String? // Description of where link is used
+  source            String? // Source platform: instagram, tiktok, facebook, twitter, whatsapp, email, other
+  
+  // Analytics
+  clickCount        Int      @default(0)
+  lastClickedAt     DateTime?
+  
+  // Status
+  isActive          Boolean  @default(true)
+  
+  // Timestamps
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Track individual visits
+  visits            ShopLinkVisit[]
+  
+  @@unique([shopId, token])
   @@index([shopId])
+  @@index([token])
+  @@index([isActive])
+  @@index([createdAt])
+  @@map("shop_links")
+}
+
+// ========================================
+// PRODUCT LINKS (SHAREABLE PRODUCT LINKS)
+// ========================================
+
+model ProductLink {
+  id                String   @id @default(uuid())
+  productId         String
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  // Unique token for the link
+  token             String   @unique @default(uuid())
+  
+  // Link metadata
+  title             String? // Custom title for the link
+  description       String? // Description of where link is used
+  source            String? // Source platform: instagram, tiktok, facebook, twitter, whatsapp, email, other
+  
+  // Analytics
+  clickCount        Int      @default(0)
+  lastClickedAt     DateTime?
+  
+  // Status
+  isActive          Boolean  @default(true)
+  
+  // Timestamps
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Track individual visits
+  visits            ProductLinkVisit[]
+  
+  @@unique([productId, token])
+  @@index([productId])
+  @@index([token])
+  @@index([isActive])
+  @@index([createdAt])
+  @@map("product_links")
+}
+
+model ProductLinkVisit {
+  id                String   @id @default(uuid())
+  productLinkId     String
+  productLink       ProductLink @relation(fields: [productLinkId], references: [id], onDelete: Cascade)
+  
+  // Visitor info (non-identifying)
+  userAgent         String?
+  referer           String?
+  ipHash            String? // Hashed IP for privacy
+  
+  // Device info
+  deviceType        String? // mobile, tablet, desktop
+  browser           String?
+  
+  // Location (if available)
+  country           String?
+  region            String?
+  
+  visitedAt         DateTime @default(now())
+  
+  @@index([productLinkId])
+  @@index([visitedAt])
+  @@map("product_link_visits")
+}
+
+model ShopLinkVisit {
+  id                String   @id @default(uuid())
+  shopLinkId        String
+  shopLink          ShopLink @relation(fields: [shopLinkId], references: [id], onDelete: Cascade)
+  
+  // Visitor info (non-identifying)
+  userAgent         String?
+  referer           String?
+  ipHash            String? // Hashed IP for privacy
+  
+  // Device info
+  deviceType        String? // mobile, tablet, desktop
+  browser           String?
+  
+  // Location (if available)
+  country           String?
+  region            String?
+  
+  visitedAt         DateTime @default(now())
+  
+  @@index([shopLinkId])
+  @@index([visitedAt])
+  @@map("shop_link_visits")
+}
+
+// ========================================
+// LEGACY SHOP-SCOPED CATEGORY (DEPRECATED)
+// ========================================
+
+model Category {
+  id        String    @id @default(uuid())
+  name      String
+  shopId    String
+  shop      Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
   @@unique([shopId, name])
+  @@index([shopId])
   @@map("categories")
 }
 
@@ -181,16 +508,16 @@ model Category {
 // ========================================
 
 model Order {
-  id          String      @id @default(uuid())
-  total       Float
-  status      String      @default("pending")
-  shopId      String
-  shop        Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  buyerId     String
-  buyer       User        @relation(fields: [buyerId], references: [id], onDelete: Cascade)
-  items       OrderItem[]
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id        String      @id @default(uuid())
+  total     Float
+  status    String      @default("pending")
+  shopId    String
+  shop      Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  buyerId   String
+  buyer     User        @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  items     OrderItem[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
   @@index([shopId])
   @@index([buyerId])
@@ -247,14 +574,14 @@ model Review {
 // ========================================
 
 model Payout {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   shopId      String
-  shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shop        Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
   amount      Float
   period      String
-  status      String   @default("pending")
+  status      String    @default("pending")
   reference   String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
   processedAt DateTime?
 
   @@index([shopId])
@@ -283,36 +610,36 @@ model PlatformSettings {
 // ========================================
 
 model KYC {
-  id               String      @id @default(uuid())
-  userId           String      @unique
-  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   // Business Information
-  businessName     String
-  businessAddress  String
-  taxId            String
-  phone            String
-  description      String?
-  
+  businessName    String
+  businessAddress String
+  taxId           String
+  phone           String
+  description     String?
+
   // Document URLs
-  idFile           String      // URL to government ID
-  businessLicense  String      // URL to business license
-  additionalDocs   Json?       // Additional documents as JSON array
-  
+  idFile          String // URL to government ID
+  businessLicense String // URL to business license
+  additionalDocs  Json? // Additional documents as JSON array
+
   // Status
-  status           KYCStatus   @default(NOT_SUBMITTED)
-  message          String?     // Admin feedback
-  
+  status  KYCStatus @default(NOT_SUBMITTED)
+  message String? // Admin feedback
+
   // Review Information
-  reviewedBy       String?     // Admin ID who reviewed
-  reviewedAt       DateTime?
-  
+  reviewedBy String? // Admin ID who reviewed
+  reviewedAt DateTime?
+
   // Timestamps
-  submittedAt      DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Relations
-  reviews          KYCReview[]
+  reviews KYCReview[]
 
   @@index([userId])
   @@index([status])
@@ -321,16 +648,16 @@ model KYC {
 }
 
 model KYCReview {
-  id               String      @id @default(uuid())
-  kycId            String
-  kyc              KYC         @relation(fields: [kycId], references: [id], onDelete: Cascade)
-  adminId          String
-  admin            Admin       @relation(fields: [adminId], references: [id], onDelete: Cascade)
-  
-  status           KYCStatus
-  comment          String?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  id      String @id @default(uuid())
+  kycId   String
+  kyc     KYC    @relation(fields: [kycId], references: [id], onDelete: Cascade)
+  adminId String
+  admin   Admin  @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  status    KYCStatus
+  comment   String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([kycId])
   @@index([adminId])

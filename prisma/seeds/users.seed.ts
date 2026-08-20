@@ -1,3 +1,7 @@
+import * as dotenv from 'dotenv';
+import { resolve } from 'path';
+dotenv.config({ path: resolve(__dirname, '../../.env') });
+
 import { PrismaClient, User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 

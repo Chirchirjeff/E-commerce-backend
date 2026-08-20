@@ -3,8 +3,10 @@ import { seedRoles } from './seeds/roles.seed';
 import { seedAdmins } from './seeds/admin.seed';
 import { seedRegularUsers } from './seeds/users.seed';
 import { seedShops } from './seeds/shops.seed';
+import { seedMarketplaceCategories } from './seeds/marketplace-categories.seed';
 import { seedCategories } from './seeds/categories.seed';
 import { seedProducts } from './seeds/products.seed';
+import { seedOrders, seedPayouts, seedReviews } from './seeds/orders.seed';
 
 const prisma = new PrismaClient();
 
@@ -28,20 +30,40 @@ async function main() {
     console.log('--------------------------------');
     const adminUser = await seedRegularUsers();
     
-    // STEP 4: Seed Shops
-    console.log('\n📋 STEP 4: Seeding Shops');
+    // STEP 4: Seed Marketplace Categories (Platform Taxonomy)
+    console.log('\n📋 STEP 4: Seeding Marketplace Categories');
+    console.log('--------------------------------');
+    await seedMarketplaceCategories();
+    
+    // STEP 5: Seed Shops
+    console.log('\n📋 STEP 5: Seeding Shops');
     console.log('--------------------------------');
     const shop = await seedShops(adminUser);
     
-    // STEP 5: Seed Categories
-    console.log('\n📋 STEP 5: Seeding Categories');
+    // STEP 6: Seed Legacy Shop Categories (Deprecated, for backward compatibility)
+    console.log('\n📋 STEP 6: Seeding Legacy Shop Categories');
     console.log('--------------------------------');
     const categoryMap = await seedCategories(shop);
     
-    // STEP 6: Seed Products
-    console.log('\n📋 STEP 6: Seeding Products');
+    // STEP 7: Seed Products
+    console.log('\n📋 STEP 7: Seeding Products');
     console.log('--------------------------------');
-    await seedProducts(shop, categoryMap);
+    await seedProducts(shop);
+
+    // STEP 8: Seed Orders, Payouts & Reviews
+    // Only seed demo data if SEED_DEMO_DATA env var is explicitly set to 'true'
+    const seedDemoData = process.env.SEED_DEMO_DATA === 'true';
+    if (seedDemoData) {
+      console.log('\n📋 STEP 8: Seeding Orders, Payouts & Reviews (Demo Data)');
+      console.log('--------------------------------');
+      await seedOrders(shop, adminUser);
+      await seedPayouts(shop);
+      await seedReviews(shop, adminUser);
+    } else {
+      console.log('\n📋 STEP 8: Skipping Demo Data (Orders, Payouts, Reviews)');
+      console.log('--------------------------------');
+      console.log('  ℹ️  Set SEED_DEMO_DATA=true to enable demo data seeding');
+    }
 
     console.log('\n================================');
     console.log('✅ All seeding completed successfully!');

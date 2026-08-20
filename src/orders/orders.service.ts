@@ -328,4 +328,108 @@ export class OrdersService {
       where: { id },
     });
   }
+
+  // ========================================
+  // VENDOR-SPECIFIC METHODS
+  // ========================================
+
+  /**
+   * Get recent orders for a vendor's shop
+   */
+  async findVendorRecent(shopId: string, limit: number) {
+    return this.client.order.findMany({
+      where: { shopId },
+      take: limit,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      include: {
+        items: {
+          include: {
+            product: true,
+          },
+        },
+        buyer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Get all orders for a vendor's shop
+   */
+  async findVendorOrders(shopId: string) {
+    return this.client.order.findMany({
+      where: { shopId },
+      include: {
+        items: {
+          include: {
+            product: true,
+          },
+        },
+        shop: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        buyer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
+
+  /**
+   * Get a single order for a vendor (with ownership verification)
+   */
+  async findVendorOrder(orderId: string, vendorUserId: string) {
+    const order = await this.client.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            product: true,
+          },
+        },
+        shop: {
+          select: {
+            id: true,
+            name: true,
+            ownerId: true,
+          },
+        },
+        buyer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Order ${orderId} not found`);
+    }
+
+    // Verify vendor owns this shop
+    if (order.shop.ownerId !== vendorUserId) {
+      throw new ForbiddenException('You do not own this order');
+    }
+
+    return order;
+  }
 }

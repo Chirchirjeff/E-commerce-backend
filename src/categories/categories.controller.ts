@@ -10,8 +10,8 @@ export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
   @Get()
-  async findAll() {
-    return this.categoriesService.findAll();
+  async findAll(@CurrentUser() user: any) {
+    return this.categoriesService.findAll(user.id);
   }
 
   @Get(':id')

@@ -41,6 +41,8 @@ const PERMISSIONS = {
 
   // Categories
   MANAGE_CATEGORIES: { name: 'can_manage_categories', category: 'Categories' },
+  MANAGE_MARKETPLACE_CATEGORIES: { name: 'can_manage_marketplace_categories', category: 'Categories' },
+  MANAGE_ATTRIBUTES: { name: 'can_manage_attributes', category: 'Categories' },
 };
 
 // Define roles with their permissions
@@ -68,6 +70,8 @@ const ROLES = [
       'MANAGE_PRODUCTS',
       'MANAGE_SHOPS',
       'MANAGE_CATEGORIES',
+      'MANAGE_MARKETPLACE_CATEGORIES',
+      'MANAGE_ATTRIBUTES',
     ],
   },
   {

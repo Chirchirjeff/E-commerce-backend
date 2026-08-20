@@ -7,6 +7,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { ValidationPipe, Logger, LogLevel } from '@nestjs/common';
 import { GlobalExceptionFilter } from './global-exception.filter';
+import { LoggingInterceptor } from './logging.interceptor';
 
 async function bootstrap() {
   const logLevels: LogLevel[] =
@@ -30,7 +31,20 @@ async function bootstrap() {
     }),
   );
 
+  // Global exception filter for all errors
   app.useGlobalFilters(new GlobalExceptionFilter());
+
+  // Global logging interceptor for all requests
+  app.useGlobalInterceptors(new LoggingInterceptor());
+
+  // Middleware to add CORS headers to static files
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+  });
 
   // serve static files from public folder so uploaded files are reachable at /uploads/*
   app.useStaticAssets(join(process.cwd(), 'public'));
@@ -60,6 +74,8 @@ async function bootstrap() {
 
   logger.log(`🚀 Server running on http://localhost:${port}`);
   logger.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.log(`🔍 Request logging: ENABLED`);
+  logger.log(`🛡️  Global exception filter: ENABLED`);
 }
 
 void bootstrap();

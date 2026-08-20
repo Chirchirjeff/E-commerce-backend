@@ -24,8 +24,22 @@ export class CategoriesService {
     });
   }
 
-  async findAll() {
-    return this.prisma.tenantClient.category.findMany();
+  async findAll(userId: string) {
+    // Find the user's shop
+    const shop = await this.prisma.client.shop.findFirst({
+      where: { ownerId: userId },
+      select: { id: true },
+    });
+
+    if (!shop) {
+      return [];
+    }
+
+    // Return only categories for this shop
+    return this.prisma.tenantClient.category.findMany({
+      where: { shopId: shop.id },
+      orderBy: { name: 'asc' },
+    });
   }
 
   // FIXED: Changed id type from number to string to match UUID

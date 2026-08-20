@@ -5,6 +5,8 @@ import { AppService } from './app.service';
 import { PrismaModule } from './prisma.module';
 import { TenantMiddleware } from './tenant.middleware';
 import { CategoriesModule } from './categories/categories.module';
+import { MarketplaceCategoriesModule } from './marketplace-categories/marketplace-categories.module';
+import { AttributesModule } from './attributes/attributes.module';
 import { AuthModule } from './auth/auth.module';
 import { ShopsModule } from './shops/shops.module';
 import { ProductsModule } from './products/products.module';
@@ -14,18 +16,24 @@ import { OrdersModule } from './orders/orders.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { KycModule } from './kyc/kyc.module';
+import { SellerCollectionsModule } from './seller-collections/seller-collections.module';
+import { SellerTagsModule } from './seller-tags/seller-tags.module';
 
 @Module({
   imports: [
     AuthModule,
     ShopsModule,
     CategoriesModule,
+    MarketplaceCategoriesModule,
+    AttributesModule,
     PrismaModule,
     ProductsModule,
     UsersModule,
     OrdersModule,
     AnalyticsModule,
     KycModule,
+    SellerCollectionsModule,
+    SellerTagsModule,
   ],
   controllers: [AppController, UploadsController],
   providers: [

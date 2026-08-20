@@ -86,7 +86,9 @@ export class UsersController {
   @Get('permissions')
   @RequirePermissions('can_manage_roles')
   async getAllPermissions() {
-    return this.usersService.getAllPermissions();
+    const permissions = await this.usersService.getAllPermissions();
+    console.log('📋 Retrieved permissions from DB:', permissions);
+    return permissions;
   }
 
   @Post('roles')

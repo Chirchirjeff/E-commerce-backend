@@ -192,11 +192,19 @@ export class UsersService {
   }
 
   async getAllPermissions() {
-    return this.prisma.client.permission.findMany({
+    console.log('🔍 getAllPermissions called');
+    const permissions = await this.prisma.client.permission.findMany({
       orderBy: {
         category: 'asc',
       },
     });
+    console.log(`📋 Found ${permissions.length} permissions in database`);
+    if (permissions.length === 0) {
+      console.log('⚠️ WARNING: No permissions found in database!');
+    } else {
+      console.log('✅ Permissions:', permissions.map(p => p.name));
+    }
+    return permissions;
   }
 
   async createRole(data: { name: string; description: string; permissionIds: string[] }) {

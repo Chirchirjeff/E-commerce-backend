@@ -17,7 +17,23 @@ import {
   Query,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import { randomBytes } from 'crypto';
+import { existsSync, mkdirSync } from 'fs';
 import { KycService } from './kyc.service';
+
+const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads');
+if (!existsSync(UPLOAD_DIR)) mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const kycStorage = diskStorage({
+  destination: UPLOAD_DIR,
+  filename: (_req, file, cb) => {
+    const rnd = randomBytes(6).toString('hex');
+    const name = `${Date.now()}-${rnd}${extname(file.originalname)}`;
+    cb(null, name);
+  },
+});
 import { CreateKycDto } from './dto/create-kyc.dto';
 import { UpdateKycDto } from './dto/update-kyc.dto';
 import { ReviewKycDto } from './dto/review-kyc.dto';
@@ -47,7 +63,7 @@ export class KycController {
    */
   @Post('submit')
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FilesInterceptor('files', 2))
+  @UseInterceptors(FilesInterceptor('files', 2, { storage: kycStorage }))
   async submitKYC(
     @Req() req: any,
     @Body() createKycDto: CreateKycDto,
@@ -61,10 +77,10 @@ export class KycController {
       );
     }
 
-    // TODO: Upload files to S3 or storage service
-    // For now, just use file names
-    const idFileUrl = files[0].filename || 'id-file-url';
-    const businessLicenseUrl = files[1].filename || 'license-file-url';
+    // Store just the filename — the service layer and frontend reconstruct the
+    // full URL via NEXT_PUBLIC_API_URL + /uploads/<filename>
+    const idFileUrl = files[0].filename;
+    const businessLicenseUrl = files[1].filename;
 
     return this.kycService.submitKYC(
       userId,

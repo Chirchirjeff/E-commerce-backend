@@ -14,8 +14,24 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import { randomBytes } from 'crypto';
+import { existsSync, mkdirSync } from 'fs';
 import { KycService } from './kyc.service';
 import { CreateKycDto } from './dto/create-kyc.dto';
+
+const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads');
+if (!existsSync(UPLOAD_DIR)) mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const kycStorage = diskStorage({
+  destination: UPLOAD_DIR,
+  filename: (_req, file, cb) => {
+    const rnd = randomBytes(6).toString('hex');
+    const name = `${Date.now()}-${rnd}${extname(file.originalname)}`;
+    cb(null, name);
+  },
+});
 
 interface MulterFile {
   fieldname: string;
@@ -48,10 +64,13 @@ export class SellerController {
    */
   @Post('kyc-submit')
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'idFile', maxCount: 1 },
-      { name: 'businessLicense', maxCount: 1 },
-    ]),
+    FileFieldsInterceptor(
+      [
+        { name: 'idFile', maxCount: 1 },
+        { name: 'businessLicense', maxCount: 1 },
+      ],
+      { storage: kycStorage },
+    ),
   )
   async submitKyc(
     @Req() req: any,
@@ -68,10 +87,10 @@ export class SellerController {
       );
     }
 
-    const idFileUrl =
-      idFileArr[0].filename || idFileArr[0].originalname || 'id-file';
-    const businessLicenseUrl =
-      licenseArr[0].filename || licenseArr[0].originalname || 'license-file';
+    // Store just the generated filename — frontend reconstructs the full URL
+    // via NEXT_PUBLIC_API_URL + /uploads/<filename>
+    const idFileUrl = idFileArr[0].filename!;
+    const businessLicenseUrl = licenseArr[0].filename!;
 
     return this.kycService.submitKYC(
       req.user.id,

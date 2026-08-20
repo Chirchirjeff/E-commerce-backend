@@ -10,4 +10,8 @@ export class UpdateShopDto extends PartialType(CreateShopDto) {
 	@IsOptional()
 	@IsString()
 	businessLogo?: string;
+
+	@IsOptional()
+	@IsString()
+	coverPhoto?: string;
 }

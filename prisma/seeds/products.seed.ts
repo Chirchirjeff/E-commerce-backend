@@ -9,7 +9,8 @@ const PRODUCTS = [
     price: 149.99,
     stockQuantity: 45,
     thumbnailUrl: 'https://via.placeholder.com/300x300?text=Headphones',
-    categoryName: 'Electronics',
+    marketplaceCategorySlug: 'headphones',
+    legacyCategoryName: 'Electronics',
   },
   {
     name: 'Premium Cotton T-Shirt',
@@ -17,7 +18,8 @@ const PRODUCTS = [
     price: 29.99,
     stockQuantity: 120,
     thumbnailUrl: 'https://via.placeholder.com/300x300?text=T-Shirt',
-    categoryName: 'Clothing & Fashion',
+    marketplaceCategorySlug: 'mens-clothing',
+    legacyCategoryName: 'Clothing & Fashion',
   },
   {
     name: 'Smart Home Hub',
@@ -25,7 +27,8 @@ const PRODUCTS = [
     price: 199.99,
     stockQuantity: 12,
     thumbnailUrl: 'https://via.placeholder.com/300x300?text=Smart+Hub',
-    categoryName: 'Electronics',
+    marketplaceCategorySlug: 'computer-accessories',
+    legacyCategoryName: 'Electronics',
   },
   {
     name: 'Organic Coffee Beans',
@@ -33,7 +36,8 @@ const PRODUCTS = [
     price: 24.99,
     stockQuantity: 0,
     thumbnailUrl: 'https://via.placeholder.com/300x300?text=Coffee',
-    categoryName: 'Food & Beverages',
+    marketplaceCategorySlug: 'cookware',
+    legacyCategoryName: 'Food & Beverages',
   },
   {
     name: 'Yoga Mat Premium',
@@ -41,7 +45,8 @@ const PRODUCTS = [
     price: 39.99,
     stockQuantity: 75,
     thumbnailUrl: 'https://via.placeholder.com/300x300?text=Yoga+Mat',
-    categoryName: 'Sports & Outdoors',
+    marketplaceCategorySlug: 'yoga-pilates',
+    legacyCategoryName: 'Sports & Outdoors',
   },
   {
     name: 'Gaming Keyboard',
@@ -49,7 +54,8 @@ const PRODUCTS = [
     price: 89.99,
     stockQuantity: 30,
     thumbnailUrl: 'https://via.placeholder.com/300x300?text=Keyboard',
-    categoryName: 'Electronics',
+    marketplaceCategorySlug: 'computer-accessories',
+    legacyCategoryName: 'Electronics',
   },
   {
     name: 'Designer Sunglasses',
@@ -57,7 +63,8 @@ const PRODUCTS = [
     price: 79.99,
     stockQuantity: 20,
     thumbnailUrl: 'https://via.placeholder.com/300x300?text=Sunglasses',
-    categoryName: 'Clothing & Fashion',
+    marketplaceCategorySlug: 'mens-accessories',
+    legacyCategoryName: 'Clothing & Fashion',
   },
   {
     name: 'Natural Skincare Set',
@@ -65,17 +72,22 @@ const PRODUCTS = [
     price: 54.99,
     stockQuantity: 40,
     thumbnailUrl: 'https://via.placeholder.com/300x300?text=Skincare',
-    categoryName: 'Health & Beauty',
+    marketplaceCategorySlug: 'face-care',
+    legacyCategoryName: 'Health & Beauty',
   },
 ];
 
-export async function seedProducts(shop: Shop, categoryMap: Record<string, string>) {
+export async function seedProducts(shop: Shop) {
   console.log('🌱 Seeding products...');
 
   for (const productData of PRODUCTS) {
-    const categoryId = categoryMap[productData.categoryName];
-    if (!categoryId) {
-      console.log(`  ⚠️ Category "${productData.categoryName}" not found, skipping product: ${productData.name}`);
+    // Find the marketplace category by slug
+    const marketplaceCategory = await prisma.marketplaceCategory.findUnique({
+      where: { slug: productData.marketplaceCategorySlug },
+    });
+
+    if (!marketplaceCategory) {
+      console.log(`  ⚠️ Marketplace category "${productData.marketplaceCategorySlug}" not found, skipping product: ${productData.name}`);
       continue;
     }
 
@@ -100,7 +112,7 @@ export async function seedProducts(shop: Shop, categoryMap: Record<string, strin
         thumbnailUrl: productData.thumbnailUrl,
         images: [productData.thumbnailUrl],
         shopId: shop.id,
-        categoryId: categoryId,
+        marketplaceCategoryId: marketplaceCategory.id,
       },
     });
     console.log(`  ✅ Product created: ${productData.name}`);

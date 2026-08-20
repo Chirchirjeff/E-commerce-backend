@@ -15,4 +15,8 @@ export class CreateShopDto {
   @IsOptional()
   @IsString()
   businessLogo?: string;
+
+  @IsOptional()
+  @IsString()
+  coverPhoto?: string;
 }

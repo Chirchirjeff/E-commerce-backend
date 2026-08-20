@@ -3,6 +3,7 @@ import { ProductsService } from './products.service';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { SkipGuard } from '../auth/decorators/skip-guard.decorator';
 
 @Controller('products')
 @UseGuards(PermissionsGuard)
@@ -10,8 +11,9 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Get()
-  async findAll() {
-    return this.productsService.findAll();
+  @SkipGuard()
+  async findAll(@Query('shopId') shopId?: string, @Query('search') search?: string) {
+    return this.productsService.findAll(shopId, search);
   }
 
   @Get('mine')

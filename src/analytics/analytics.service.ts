@@ -198,4 +198,149 @@ export class AnalyticsService {
       growth: lastMonth > 0 ? Math.round((total / lastMonth) * 100) : 100,
     };
   }
+
+  // ========================================
+  // VENDOR-SPECIFIC ANALYTICS (filtered by shopId)
+  // ========================================
+
+  /**
+   * Get vendor dashboard stats (for seller/vendor view)
+   */
+  async getVendorDashboardStats(shopId: string) {
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    const whereFilter = { shopId };
+    const whereFilterMonth = { shopId, createdAt: { gte: firstDayOfMonth } };
+    const whereFilterLastMonth = {
+      shopId,
+      createdAt: { gte: firstDayOfLastMonth, lt: firstDayOfMonth },
+    };
+
+    // Current month stats
+    const [currentMonthOrders, currentMonthRevenue] = await Promise.all([
+      this.client.order.count({ where: whereFilterMonth }),
+      this.client.order.aggregate({
+        where: { ...whereFilterMonth, status: { not: 'cancelled' } },
+        _sum: { total: true },
+      }),
+    ]);
+
+    // Last month stats
+    const [lastMonthOrders, lastMonthRevenue] = await Promise.all([
+      this.client.order.count({ where: whereFilterLastMonth }),
+      this.client.order.aggregate({
+        where: { ...whereFilterLastMonth, status: { not: 'cancelled' } },
+        _sum: { total: true },
+      }),
+    ]);
+
+    // Total counts for this shop
+    const [totalOrders, totalRevenue, totalProducts, pendingOrders] = await Promise.all([
+      this.client.order.count({ where: whereFilter }),
+      this.client.order.aggregate({
+        where: { ...whereFilter, status: { not: 'cancelled' } },
+        _sum: { total: true },
+      }),
+      this.client.product.count({ where: { shopId } }),
+      this.client.order.count({ where: { ...whereFilter, status: 'pending' } }),
+    ]);
+
+    // Average rating for this shop
+    const avgRating = await this.client.review.aggregate({
+      _avg: { rating: true },
+      where: { shopId, status: 'approved' },
+    });
+
+    // Calculate growth
+    const calculateGrowth = (current: number, previous: number) => {
+      if (previous === 0) return 0;
+      return Math.round(((current - previous) / previous) * 100);
+    };
+
+    const totalRevenueValue = totalRevenue._sum.total || 0;
+    const currentRevenueValue = currentMonthRevenue._sum.total || 0;
+    const lastRevenueValue = lastMonthRevenue._sum.total || 0;
+
+    // Get order status distribution for this shop
+    const orderStatus = await this.getVendorOrderStatus(shopId);
+
+    return {
+      totalRevenue: totalRevenueValue,
+      totalOrders,
+      totalProducts,
+      pendingOrders,
+      averageRating: Number(avgRating._avg.rating?.toFixed(1)) || 0,
+      revenueGrowth: calculateGrowth(currentRevenueValue, lastRevenueValue),
+      orderGrowth: calculateGrowth(currentMonthOrders, lastMonthOrders),
+      orderStatus,
+    };
+  }
+
+  /**
+   * Get vendor revenue data (for seller/vendor view)
+   */
+  async getVendorRevenue(shopId: string, range: string) {
+    const days = parseInt(range) || 30;
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    const orders = await this.client.order.findMany({
+      where: {
+        shopId,
+        createdAt: { gte: startDate },
+        status: { not: 'cancelled' },
+      },
+      select: {
+        total: true,
+        createdAt: true,
+      },
+    });
+
+    // Group by date
+    const groupedData: Record<string, { date: string; revenue: number; orders: number }> = {};
+
+    orders.forEach((order) => {
+      const date = order.createdAt.toISOString().split('T')[0];
+      if (!groupedData[date]) {
+        groupedData[date] = { date, revenue: 0, orders: 0 };
+      }
+      groupedData[date].revenue += order.total;
+      groupedData[date].orders += 1;
+    });
+
+    // Fill missing dates
+    const result: Array<{ date: string; revenue: number; orders: number }> = [];
+    const currentDate = new Date(startDate);
+    const endDate = new Date();
+
+    while (currentDate <= endDate) {
+      const dateStr = currentDate.toISOString().split('T')[0];
+      result.push({
+        date: dateStr,
+        revenue: groupedData[dateStr]?.revenue || 0,
+        orders: groupedData[dateStr]?.orders || 0,
+      });
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    return result;
+  }
+
+  /**
+   * Get order status distribution for a vendor
+   */
+  async getVendorOrderStatus(shopId: string) {
+    const stats = await this.client.order.groupBy({
+      by: ['status'],
+      where: { shopId },
+      _count: true,
+    });
+
+    return stats.map((item) => ({
+      name: item.status,
+      value: item._count,
+    }));
+  }
 }

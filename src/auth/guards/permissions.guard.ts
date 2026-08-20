@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../../prisma.service';
+import { SKIP_GUARD_KEY } from '../decorators/skip-guard.decorator';
 
 // Seller-side permissions are validated by shop ownership in the service layer.
 // These are the permissions sellers are always granted when they have a verified
@@ -26,6 +27,16 @@ export class PermissionsGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Check if the route is marked to skip guard
+    const skipGuard = this.reflector.get<boolean>(
+      SKIP_GUARD_KEY,
+      context.getHandler(),
+    );
+
+    if (skipGuard) {
+      return true;
+    }
+
     const requiredPermissions = this.reflector.get<string[]>(
       'permissions',
       context.getHandler(),

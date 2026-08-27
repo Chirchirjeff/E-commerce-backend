@@ -3,9 +3,10 @@ import { KycService } from './kyc.service';
 import { KycController } from './kyc.controller';
 import { SellerController } from './seller.controller';
 import { AuthModule } from '../auth/auth.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, EmailModule],
   controllers: [KycController, SellerController],
   providers: [KycService],
 })

@@ -5,6 +5,7 @@ import { AuthController } from './auth.controller';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PermissionsGuard } from './guards/permissions.guard';
 import { PrismaModule } from '../prisma.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { PrismaModule } from '../prisma.module';
       signOptions: { expiresIn: '7d' },
     }),
     PrismaModule,
+    EmailModule,
   ],
   controllers: [AuthController],
   providers: [

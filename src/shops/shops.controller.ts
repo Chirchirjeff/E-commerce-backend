@@ -152,6 +152,17 @@ export class ShopsController {
     return this.shopsService.getShopStats(id);
   }
 
+  /**
+   * Get marketplace categories that this shop has products in.
+   * Public endpoint — buyers use this to populate the category filter sidebar.
+   * GET /shops/:shopId/categories
+   */
+  @Get(':shopId/categories')
+  @SkipGuard()
+  async getShopCategories(@Param('shopId') shopId: string) {
+    return this.shopsService.getShopCategories(shopId);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.shopsService.findOne(id);

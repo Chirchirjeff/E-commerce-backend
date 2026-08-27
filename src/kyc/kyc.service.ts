@@ -11,10 +11,14 @@ import { KYCStatus } from '@prisma/client';
 import { CreateKycDto } from './dto/create-kyc.dto';
 import { UpdateKycDto } from './dto/update-kyc.dto';
 import { ReviewKycDto } from './dto/review-kyc.dto';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class KycService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private emailService: EmailService,
+  ) {}
 
   /**
    * Submit KYC for a user
@@ -215,8 +219,9 @@ export class KycService {
       throw new ConflictException('KYC is already verified');
     }
 
-    // Start a transaction
-    return this.prisma.client.$transaction(async (tx) => {
+    // Persist the KYC decision before attempting email delivery. A delivery
+    // failure must never roll back a verified seller or newly created shop.
+    const updatedKYC = await this.prisma.client.$transaction(async (tx) => {
       // 1. Update KYC status
       const updatedKYC = await tx.kYC.update({
         where: { id: kycId },
@@ -267,6 +272,15 @@ export class KycService {
 
       return updatedKYC;
     });
+
+    await this.emailService.sendKycStatusEmail({
+      recipientEmail: kyc.user.email,
+      recipientName: kyc.user.name,
+      businessName: kyc.businessName,
+      outcome: 'approved',
+    });
+
+    return updatedKYC;
   }
 
   /**
@@ -275,6 +289,7 @@ export class KycService {
   async rejectKYC(kycId: string, adminId: string, reason: string) {
     const kyc = await this.prisma.client.kYC.findUnique({
       where: { id: kycId },
+      include: { user: true },
     });
 
     if (!kyc) {
@@ -285,7 +300,7 @@ export class KycService {
       throw new ConflictException('Cannot reject already verified KYC');
     }
 
-    return this.prisma.client.$transaction(async (tx) => {
+    const updatedKYC = await this.prisma.client.$transaction(async (tx) => {
       // 1. Update KYC status
       const updatedKYC = await tx.kYC.update({
         where: { id: kycId },
@@ -309,6 +324,16 @@ export class KycService {
 
       return updatedKYC;
     });
+
+    await this.emailService.sendKycStatusEmail({
+      recipientEmail: kyc.user.email,
+      recipientName: kyc.user.name,
+      businessName: kyc.businessName,
+      outcome: 'rejected',
+      reason,
+    });
+
+    return updatedKYC;
   }
 
   /**

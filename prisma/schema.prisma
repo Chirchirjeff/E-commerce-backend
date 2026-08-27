@@ -92,14 +92,53 @@ model User {
   password  String
   name      String
   phone     String?
+  // Buyers must verify their email before they can place and view orders.
+  emailVerifiedAt DateTime?
   shops     Shop[]
   orders    Order[]
+  addresses BuyerAddress[]
+  verificationCodes AuthVerificationCode[]
   reviews   Review[]
   kyc       KYC? // One-to-one with KYC
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("users")
+}
+
+// Global delivery addresses belong to the buyer, never to a specific shop.
+model BuyerAddress {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label       String   @default("Home")
+  recipientName String
+  phone       String
+  addressLine String
+  city        String
+  state       String
+  postalCode  String
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@map("buyer_addresses")
+}
+
+// A hashed, short-lived one-time code for signup verification and password login.
+model AuthVerificationCode {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose   String
+  codeHash  String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, purpose, expiresAt])
+  @@map("auth_verification_codes")
 }
 
 // ========================================
@@ -508,22 +547,99 @@ model Category {
 // ========================================
 
 model Order {
-  id        String      @id @default(uuid())
-  total     Float
-  status    String      @default("pending")
-  shopId    String
-  shop      Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  buyerId   String
-  buyer     User        @relation(fields: [buyerId], references: [id], onDelete: Cascade)
-  items     OrderItem[]
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id          String      @id @default(uuid())
+  // Human-readable order number shown to the buyer and on M-Pesa statement
+  // Format: QZ-YYYYMMDD-NNNNN  e.g. QZ-20260824-00001
+  orderNumber String      @unique
+  // Un guessable public identifier shared in order tracking links
+  trackingToken String    @unique
+  total       Float
+  status      String      @default("pending")
+  // These dimensions are intentionally independent. `status` is retained for
+  // backwards compatibility with existing buyer-facing integrations.
+  paymentStatus     String   @default("PENDING")
+  fulfillmentStatus String   @default("NEW")
+  deliveryStatus    String   @default("NOT_DISPATCHED")
+  escrowStatus      String   @default("NOT_APPLICABLE")
+  deliveryMethod    String?
+  trackingUrl       String?
+  // ── Delivery address (captured at checkout, stored on the order) ──────────
+  deliveryName    String?
+  deliveryPhone   String?
+  deliveryEmail   String?
+  deliveryAddress String?
+  deliveryCity    String?
+  deliveryState   String?
+  deliveryZip     String?
+  // ── Shipping / tracking (filled by the seller once dispatched) ────────────
+  trackingNumber  String?
+  shippingCarrier String?
+  estimatedDelivery DateTime?
+  dispatchedAt    DateTime?
+  // ─────────────────────────────────────────────────────────────────────────
+  shopId      String
+  shop        Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  buyerId     String
+  buyer       User        @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  items       OrderItem[]
+  // M-Pesa payment (one-to-one, optional)
+  mpesaTransaction MpesaTransaction?
+  events       OrderEvent[]
+  returnRequests ReturnRequest[]
+  disputes     OrderDispute[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
   @@index([shopId])
   @@index([buyerId])
   @@index([status])
+  @@index([fulfillmentStatus])
+  @@index([paymentStatus])
+  @@index([deliveryStatus])
   @@index([createdAt])
+  @@index([orderNumber])
   @@map("orders")
+}
+
+model OrderEvent {
+  id        String   @id @default(uuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type      String
+  message   String
+  actorId   String?
+  createdAt DateTime @default(now())
+
+  @@index([orderId, createdAt])
+  @@map("order_events")
+}
+
+model ReturnRequest {
+  id          String   @id @default(uuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reason      String
+  status      String   @default("RETURN_REQUESTED")
+  requestedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orderId, status])
+  @@map("return_requests")
+}
+
+model OrderDispute {
+  id          String   @id @default(uuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reason      String
+  evidence    Json?
+  sellerResponse String?
+  status      String   @default("OPEN")
+  openedAt    DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orderId, status])
+  @@map("order_disputes")
 }
 
 model OrderItem {
@@ -663,6 +779,46 @@ model KYCReview {
   @@index([adminId])
   @@index([status])
   @@map("kyc_reviews")
+}
+
+// ========================================
+// MPESA TRANSACTION MODEL
+// ========================================
+
+model MpesaTransaction {
+  id                 String   @id @default(uuid())
+  // STK push identifiers
+  merchantRequestId  String?
+  checkoutRequestId  String   @unique
+  // Amount sent in the push
+  amount             Float
+  // The phone number that received the push
+  phoneNumber        String
+  // Safaricom response description
+  responseCode       String?
+  responseDescription String?
+  // Callback result
+  resultCode         String?
+  resultDescription  String?
+  // M-Pesa receipt number (populated on success)
+  mpesaReceiptNumber String?
+  // Human-readable order number (populated when order is created on success)
+  orderNumber        String?
+  // Internal status: PENDING | SUCCESS | FAILED | CANCELLED | TIMEOUT
+  status             String   @default("PENDING")
+  // Linked order (null until payment confirmed and order created)
+  orderId            String?  @unique
+  order              Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  // Raw callback payload for debugging
+  callbackMetadata   Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([checkoutRequestId])
+  @@index([status])
+  @@index([phoneNumber])
+  @@index([createdAt])
+  @@map("mpesa_transactions")
 }
 
 // ========================================

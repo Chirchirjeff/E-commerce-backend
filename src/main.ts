@@ -1,10 +1,13 @@
 import * as dotenv from 'dotenv';
-dotenv.config();
+import { join } from 'path';
+
+// Resolve this repository's .env rather than relying on the directory from
+// which Nest happened to be started (for example, a workspace root in an IDE).
+dotenv.config({ path: join(__dirname, '..', '.env') });
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { join } from 'path';
 import { ValidationPipe, Logger, LogLevel } from '@nestjs/common';
 import { GlobalExceptionFilter } from './global-exception.filter';
 import { LoggingInterceptor } from './logging.interceptor';
@@ -62,7 +65,10 @@ async function bootstrap() {
               /^https?:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/.test(origin) ||
               /^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+(:\d+)?$/.test(
                 origin,
-              );
+              ) ||
+              // Allow ngrok tunnels for local development
+              /^https:\/\/[a-z0-9-]+\.ngrok(-free)?\.app$/.test(origin) ||
+              /^https:\/\/[a-z0-9-]+\.ngrok-free\.dev$/.test(origin);
 
             callback(null, allowedDevOrigin);
           },

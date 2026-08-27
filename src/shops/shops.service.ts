@@ -213,6 +213,43 @@ export class ShopsService {
     return shop;
   }
 
+  /**
+   * Return marketplace categories that this shop actually has products in.
+   * Uses a single grouped DB query instead of fetching all products client-side.
+   */
+  async getShopCategories(shopId: string) {
+    // Verify shop exists
+    const shop = await this.client.shop.findUnique({
+      where: { id: shopId },
+      select: { id: true },
+    });
+
+    if (!shop) {
+      throw new NotFoundException(`Shop with ID ${shopId} not found`);
+    }
+
+    // Group products by marketplaceCategoryId to find which categories are used
+    const grouped = await this.client.product.groupBy({
+      by: ['marketplaceCategoryId'],
+      where: { shopId },
+    });
+
+    const categoryIds = grouped.map((g) => g.marketplaceCategoryId);
+
+    if (categoryIds.length === 0) {
+      return [];
+    }
+
+    // Fetch the full category records in one query
+    return this.client.marketplaceCategory.findMany({
+      where: {
+        id: { in: categoryIds },
+        isActive: true,
+      },
+      orderBy: [{ level: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
+    });
+  }
+
   async update(id: string, updateShopDto: UpdateShopDto) {
     // If name is being updated, regenerate slug
     let slug: string | undefined;

@@ -182,7 +182,11 @@ export class UsersService {
             permission: true,
           },
         },
+        _count: {
+          select: { admins: true },
+        },
       },
+      orderBy: { name: 'asc' },
     });
 
     return roles.map((role) => ({
@@ -208,6 +212,11 @@ export class UsersService {
   }
 
   async createRole(data: { name: string; description: string; permissionIds: string[] }) {
+    const permissionIds = [...new Set(data.permissionIds)];
+    if (permissionIds.length === 0) {
+      throw new BadRequestException('Select at least one permission');
+    }
+
     const existing = await this.prisma.client.role.findUnique({
       where: { name: data.name },
     });
@@ -216,13 +225,20 @@ export class UsersService {
       throw new ConflictException('Role with this name already exists');
     }
 
+    const permissionCount = await this.prisma.client.permission.count({
+      where: { id: { in: permissionIds } },
+    });
+    if (permissionCount !== permissionIds.length) {
+      throw new BadRequestException('One or more selected permissions are invalid');
+    }
+
     const role = await this.prisma.client.role.create({
       data: {
         name: data.name,
         description: data.description,
         isSystem: false,
         permissions: {
-          create: data.permissionIds.map((permissionId) => ({
+          create: permissionIds.map((permissionId) => ({
             permissionId,
           })),
         },
@@ -251,12 +267,20 @@ export class UsersService {
       throw new NotFoundException('Role not found');
     }
 
-    if (role.isSystem) {
-      throw new ForbiddenException('System roles cannot be modified');
-    }
-
     // If permissions are being updated, replace them
-    if (data.permissionIds) {
+    if (data.permissionIds !== undefined) {
+      const permissionIds = [...new Set(data.permissionIds)];
+      if (permissionIds.length === 0) {
+        throw new BadRequestException('Select at least one permission');
+      }
+
+      const permissionCount = await this.prisma.client.permission.count({
+        where: { id: { in: permissionIds } },
+      });
+      if (permissionCount !== permissionIds.length) {
+        throw new BadRequestException('One or more selected permissions are invalid');
+      }
+
       // Delete existing permissions
       await this.prisma.client.rolePermission.deleteMany({
         where: { roleId: id },
@@ -264,7 +288,7 @@ export class UsersService {
 
       // Create new permissions
       await this.prisma.client.rolePermission.createMany({
-        data: data.permissionIds.map((permissionId) => ({
+        data: permissionIds.map((permissionId) => ({
           roleId: id,
           permissionId,
         })),
@@ -304,8 +328,8 @@ export class UsersService {
       throw new NotFoundException('Role not found');
     }
 
-    if (role.isSystem) {
-      throw new ForbiddenException('System roles cannot be deleted');
+    if (role.name === 'Super Admin') {
+      throw new ForbiddenException('The Super Admin role cannot be deleted');
     }
 
     // Check if any admins are using this role

@@ -21,8 +21,31 @@ export class TenantMiddleware implements NestMiddleware {
       const hostname = req.hostname;
 
       // Skip for localhost or IP addresses
-      if (!hostname || hostname === 'localhost' || hostname === '127.0.0.1' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+      if (
+        !hostname ||
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        /^\d+\.\d+\.\d+\.\d+$/.test(hostname)
+      ) {
         this.logger.debug(`Skipping tenant resolution: ${hostname}`);
+        return next();
+      }
+
+      // Skip for ngrok / tunnel domains — these are not tenant subdomains
+      if (
+        hostname.endsWith('.ngrok-free.app') ||
+        hostname.endsWith('.ngrok-free.dev') ||
+        hostname.endsWith('.ngrok.app') ||
+        hostname.endsWith('.ngrok.io') ||
+        hostname.endsWith('.loca.lt') ||
+        hostname.endsWith('.serveo.net')
+      ) {
+        this.logger.debug(`Skipping tenant resolution for tunnel host: ${hostname}`);
+        return next();
+      }
+
+      // Skip for M-Pesa callback path regardless of host (belt-and-suspenders)
+      if (req.path.startsWith('/mpesa/')) {
         return next();
       }
 

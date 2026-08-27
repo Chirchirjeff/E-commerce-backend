@@ -101,8 +101,23 @@ export async function seedOrders(shop: Shop, buyer: User): Promise<Order[]> {
 
     const total = items.reduce((sum, item) => sum + item.subtotal, 0);
 
+    // Generate a unique order number for this seed entry
+    const seedDate = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const seedPrefix = `QZ-${seedDate}-`;
+    const lastSeedOrder = await prisma.order.findFirst({
+      where: { orderNumber: { startsWith: seedPrefix } },
+      orderBy: { orderNumber: 'desc' },
+      select: { orderNumber: true },
+    });
+    const seedSeq = lastSeedOrder
+      ? parseInt(lastSeedOrder.orderNumber.split('-')[2], 10) + 1
+      : createdOrders.length + 1;
+    const seedOrderNumber = `${seedPrefix}${String(seedSeq).padStart(5, '0')}`;
+
     const order = await prisma.order.create({
       data: {
+        orderNumber: seedOrderNumber,
+        trackingToken: require('crypto').randomBytes(24).toString('hex'),
         shopId: shop.id,
         buyerId: buyer.id,
         status: orderData.status,

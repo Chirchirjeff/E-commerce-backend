@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ProductLinksService } from './product-links.service';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SkipGuard } from '../auth/decorators/skip-guard.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 

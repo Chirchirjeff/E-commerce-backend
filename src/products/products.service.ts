@@ -8,11 +8,43 @@ import {
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PrismaService } from '../prisma.service';
+import { Prisma } from '@prisma/client';
+import {
+  ProductSuggestionsDto,
+  SearchProductsDto,
+} from './dto/search-products.dto';
 
 type NormalizedProductImage = {
   imageUrl: string;
   isPrimary: boolean;
 };
+
+type SearchRow = {
+  id: string;
+  name: string;
+  price: number;
+  thumbnailUrl: string | null;
+  stockQuantity: number;
+  marketplaceCategoryId: string;
+  marketplaceCategoryName: string;
+  shopId: string;
+  shopName: string;
+  shopSlug: string;
+  matchType: 'exact' | 'phrase' | 'prefix' | 'full_text' | 'close';
+  nameSimilarity: number;
+  total: bigint;
+};
+
+type SuggestionRow = { text: string };
+
+export function normalizeProductSearchQuery(query: string): string {
+  return query
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
 
 @Injectable()
 export class ProductsService {
@@ -65,7 +97,10 @@ export class ProductsService {
     });
 
     // Add attribute values if provided
-    if (createProductDto.attributeValues && createProductDto.attributeValues.length > 0) {
+    if (
+      createProductDto.attributeValues &&
+      createProductDto.attributeValues.length > 0
+    ) {
       await this.setProductAttributeValues(
         product.id,
         marketplaceCategoryId,
@@ -74,7 +109,10 @@ export class ProductsService {
     }
 
     // Add to collections if provided
-    if (createProductDto.collectionIds && createProductDto.collectionIds.length > 0) {
+    if (
+      createProductDto.collectionIds &&
+      createProductDto.collectionIds.length > 0
+    ) {
       await this.addProductToCollections(
         product.id,
         createProductDto.collectionIds,
@@ -84,7 +122,11 @@ export class ProductsService {
 
     // Add tags if provided
     if (createProductDto.tagIds && createProductDto.tagIds.length > 0) {
-      await this.addProductTags(product.id, createProductDto.tagIds, resolvedShopId);
+      await this.addProductTags(
+        product.id,
+        createProductDto.tagIds,
+        resolvedShopId,
+      );
     }
 
     // Return complete product with all relations
@@ -92,12 +134,17 @@ export class ProductsService {
   }
 
   // OPTIONAL BONUS: You could filter global reads by the shopId too if you want isolation on lists
-  async findAll(shopId?: string, search?: string) {
+  async findAll(shopId?: string, search?: string, categoryId?: string) {
     const where: any = {};
 
     // Filter by shop if provided
     if (shopId) {
       where.shopId = shopId;
+    }
+
+    // Filter by marketplace category if provided
+    if (categoryId) {
+      where.marketplaceCategoryId = categoryId;
     }
 
     // Filter by search term if provided
@@ -126,6 +173,168 @@ export class ProductsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  /**
+   * Public marketplace search. The Product model has no SKU, brand, status, or
+   * soft-delete field, so search is limited to buyer-safe catalog data: name,
+   * description, marketplace category, seller tags, and attributes explicitly
+   * marked searchable for their category.
+   */
+  async search(query: SearchProductsDto) {
+    const normalizedQuery = this.requireNormalizedSearchQuery(query.q);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const offset = (page - 1) * limit;
+
+    const rows = await this.prisma.client.$queryRaw<SearchRow[]>(Prisma.sql`
+      WITH search_input AS (
+        SELECT
+          ${normalizedQuery}::text AS query,
+          websearch_to_tsquery('simple', ${normalizedQuery}) AS tsquery
+      ),
+      searchable_products AS (
+        SELECT
+          p."id", p."name", p."price", p."thumbnailUrl", p."stockQuantity",
+          p."marketplaceCategoryId", mc."name" AS "marketplaceCategoryName",
+          s."id" AS "shopId", s."name" AS "shopName", s."slug" AS "shopSlug",
+          lower(p."name") AS normalized_name,
+          setweight(to_tsvector('simple', coalesce(p."name", '')), 'A') ||
+          setweight(to_tsvector('simple', coalesce(p."description", '')), 'B') ||
+          setweight(to_tsvector('simple', coalesce(mc."name", '')), 'B') ||
+          setweight(to_tsvector('simple', coalesce(tag_values.tags, '')), 'C') ||
+          setweight(to_tsvector('simple', coalesce(attribute_values.attributes, '')), 'C')
+            AS document,
+          coalesce(tag_values.tags, '') AS tags,
+          coalesce(attribute_values.attributes, '') AS attributes
+        FROM "products" p
+        JOIN "marketplace_categories" mc ON mc."id" = p."marketplaceCategoryId"
+        JOIN "shops" s ON s."id" = p."shopId"
+        LEFT JOIN LATERAL (
+          SELECT string_agg(st."name", ' ') AS tags
+          FROM "product_tags" pt
+          JOIN "seller_tags" st ON st."id" = pt."tagId"
+          WHERE pt."productId" = p."id"
+        ) tag_values ON true
+        LEFT JOIN LATERAL (
+          SELECT string_agg(pav."value", ' ') AS attributes
+          FROM "product_attribute_values" pav
+          JOIN "category_attributes" ca
+            ON ca."attributeId" = pav."attributeId"
+           AND ca."categoryId" = p."marketplaceCategoryId"
+           AND ca."searchable" = true
+          WHERE pav."productId" = p."id"
+        ) attribute_values ON true
+        WHERE mc."isActive" = true
+      ),
+      ranked AS (
+        SELECT sp.*,
+          CASE
+            WHEN sp.normalized_name = si.query THEN 'exact'
+            WHEN position(si.query IN sp.normalized_name) > 0 THEN 'phrase'
+            WHEN sp.normalized_name LIKE si.query || '%' THEN 'prefix'
+            WHEN sp.document @@ si.tsquery THEN 'full_text'
+            ELSE 'close'
+          END AS "matchType",
+          word_similarity(si.query, sp.normalized_name) AS "nameSimilarity",
+          (
+            CASE WHEN sp.normalized_name = si.query THEN 1000 ELSE 0 END +
+            CASE WHEN position(si.query IN sp.normalized_name) > 0 THEN 500 ELSE 0 END +
+            CASE WHEN sp.normalized_name LIKE si.query || '%' THEN 250 ELSE 0 END +
+            ts_rank_cd(sp.document, si.tsquery, 32) * 100 +
+            word_similarity(si.query, sp.normalized_name) * 50 +
+            CASE WHEN sp."stockQuantity" > 0 THEN 1 ELSE 0 END
+          ) AS score
+        FROM searchable_products sp
+        CROSS JOIN search_input si
+        WHERE
+          sp.normalized_name = si.query
+          OR position(si.query IN sp.normalized_name) > 0
+          OR sp.normalized_name LIKE si.query || '%'
+          OR sp.document @@ si.tsquery
+          OR word_similarity(si.query, sp.normalized_name) >= 0.35
+      )
+      SELECT
+        "id", "name", "price", "thumbnailUrl", "stockQuantity",
+        "marketplaceCategoryId", "marketplaceCategoryName", "shopId", "shopName", "shopSlug",
+        "matchType", "nameSimilarity", count(*) OVER() AS total
+      FROM ranked
+      ORDER BY score DESC, "name" ASC, "id" ASC
+      LIMIT ${limit} OFFSET ${offset}
+    `);
+
+    const total = rows.length ? Number(rows[0].total) : 0;
+    const exactMatch = rows.some((row) => row.matchType === 'exact');
+    const bestCloseMatch = rows.find(
+      (row) => row.matchType === 'close' && row.nameSimilarity >= 0.6,
+    );
+
+    return {
+      query: query.q,
+      normalizedQuery,
+      exactMatch,
+      correctedQuery:
+        !exactMatch && bestCloseMatch ? bestCloseMatch.name : undefined,
+      suggestions: !exactMatch && bestCloseMatch ? [bestCloseMatch.name] : [],
+      results: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        price: row.price,
+        thumbnailUrl: row.thumbnailUrl,
+        inStock: row.stockQuantity > 0,
+        matchType: row.matchType,
+        category: {
+          id: row.marketplaceCategoryId,
+          name: row.marketplaceCategoryName,
+        },
+        shop: { id: row.shopId, name: row.shopName, slug: row.shopSlug },
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /** Lightweight product-name-only query for each autocomplete keystroke. */
+  async suggestions(query: ProductSuggestionsDto) {
+    const normalizedQuery = this.requireNormalizedSearchQuery(query.q);
+    const limit = query.limit ?? 8;
+    const rows = await this.prisma.client.$queryRaw<SuggestionRow[]>(Prisma.sql`
+      SELECT p."name" AS text
+      FROM "products" p
+      JOIN "marketplace_categories" mc ON mc."id" = p."marketplaceCategoryId"
+      WHERE mc."isActive" = true
+        AND (
+          lower(p."name") LIKE ${`${normalizedQuery}%`}
+          OR word_similarity(${normalizedQuery}, lower(p."name")) >= 0.45
+        )
+      ORDER BY
+        CASE WHEN lower(p."name") LIKE ${`${normalizedQuery}%`} THEN 0 ELSE 1 END,
+        word_similarity(${normalizedQuery}, lower(p."name")) DESC,
+        p."name" ASC
+      LIMIT ${limit}
+    `);
+
+    return {
+      query: query.q,
+      normalizedQuery,
+      suggestions: rows.map((row) => ({ text: row.text, type: 'product' })),
+    };
+  }
+
+  private requireNormalizedSearchQuery(query: string): string {
+    const normalizedQuery = normalizeProductSearchQuery(query);
+
+    if (normalizedQuery.length < 2) {
+      throw new BadRequestException(
+        'Search query must contain at least 2 letters or numbers',
+      );
+    }
+
+    return normalizedQuery;
   }
 
   async findMine(userId: string) {
@@ -215,7 +424,10 @@ export class ProductsService {
       payload.categoryId =
         updateProductDto.categoryId === null
           ? null
-          : await this.resolveCategoryId(updateProductDto.categoryId, product.shopId);
+          : await this.resolveCategoryId(
+              updateProductDto.categoryId,
+              product.shopId,
+            );
     }
 
     const updatedProduct = await this.prisma.client.product.update({
@@ -238,7 +450,10 @@ export class ProductsService {
     });
 
     // Update attribute values if provided
-    if (updateProductDto.attributeValues && updateProductDto.attributeValues.length > 0) {
+    if (
+      updateProductDto.attributeValues &&
+      updateProductDto.attributeValues.length > 0
+    ) {
       await this.setProductAttributeValues(
         id,
         updatedProduct.marketplaceCategoryId,
@@ -378,7 +593,9 @@ export class ProductsService {
     }
 
     if (!category.isActive) {
-      throw new BadRequestException('Cannot assign an inactive marketplace category');
+      throw new BadRequestException(
+        'Cannot assign an inactive marketplace category',
+      );
     }
 
     return category.id;
@@ -393,10 +610,11 @@ export class ProductsService {
     attributeValues: Array<{ attributeId: string; value: string }>,
   ): Promise<void> {
     // Get category attributes to validate
-    const categoryAttributes = await this.prisma.client.categoryAttribute.findMany({
-      where: { categoryId },
-      include: { attribute: true },
-    });
+    const categoryAttributes =
+      await this.prisma.client.categoryAttribute.findMany({
+        where: { categoryId },
+        include: { attribute: true },
+      });
 
     const categoryAttributeMap = new Map(
       categoryAttributes.map((ca) => [ca.attributeId, ca]),
@@ -460,14 +678,16 @@ export class ProductsService {
       }
 
       // Add to collection
-      await this.prisma.client.productCollection.create({
-        data: {
-          productId,
-          collectionId,
-        },
-      }).catch(() => {
-        // Ignore if already exists
-      });
+      await this.prisma.client.productCollection
+        .create({
+          data: {
+            productId,
+            collectionId,
+          },
+        })
+        .catch(() => {
+          // Ignore if already exists
+        });
     }
   }
 
@@ -514,14 +734,16 @@ export class ProductsService {
       }
 
       // Add tag to product
-      await this.prisma.client.productTag.create({
-        data: {
-          productId,
-          tagId,
-        },
-      }).catch(() => {
-        // Ignore if already exists
-      });
+      await this.prisma.client.productTag
+        .create({
+          data: {
+            productId,
+            tagId,
+          },
+        })
+        .catch(() => {
+          // Ignore if already exists
+        });
     }
   }
 

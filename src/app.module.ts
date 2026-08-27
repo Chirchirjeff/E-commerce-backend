@@ -1,5 +1,7 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { ConfigModule } from '@nestjs/config';
+import { join } from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma.module';
@@ -18,9 +20,15 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { KycModule } from './kyc/kyc.module';
 import { SellerCollectionsModule } from './seller-collections/seller-collections.module';
 import { SellerTagsModule } from './seller-tags/seller-tags.module';
+import { MpesaModule } from './mpesa/mpesa.module';
 
 @Module({
   imports: [
+    // Register ConfigModule globally so ConfigService is available everywhere
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: join(__dirname, '..', '.env'),
+    }),
     AuthModule,
     ShopsModule,
     CategoriesModule,
@@ -34,6 +42,7 @@ import { SellerTagsModule } from './seller-tags/seller-tags.module';
     KycModule,
     SellerCollectionsModule,
     SellerTagsModule,
+    MpesaModule,
   ],
   controllers: [AppController, UploadsController],
   providers: [

@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Put, Patch, Delete, Body, Param, UseGuards, Query, Req } from '@nestjs/common';
 import { ShopsService } from './shops.service';
 import { ShopLinksService } from './shop-links.service';
+import { SellerCollectionsService } from '../seller-collections/seller-collections.service';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -13,6 +14,7 @@ export class ShopsController {
   constructor(
     private readonly shopsService: ShopsService,
     private readonly shopLinksService: ShopLinksService,
+    private readonly collectionsService: SellerCollectionsService,
   ) {}
 
   @Get()
@@ -161,6 +163,18 @@ export class ShopsController {
   @SkipGuard()
   async getShopCategories(@Param('shopId') shopId: string) {
     return this.shopsService.getShopCategories(shopId);
+  }
+
+  /**
+   * Get active collections for a shop — public, no auth required.
+   * Returns each collection with a trimmed product list (id, name, price,
+   * thumbnailUrl, images) so the storefront can render carousels.
+   * GET /shops/:shopId/collections
+   */
+  @Get(':shopId/collections')
+  @SkipGuard()
+  async getShopCollections(@Param('shopId') shopId: string) {
+    return this.collectionsService.findPublicByShop(shopId);
   }
 
   @Get(':id')

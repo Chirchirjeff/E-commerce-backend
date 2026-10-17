@@ -138,6 +138,25 @@ export class SellerCollectionsController {
   }
 
   /**
+   * Bulk-add multiple products to a collection.
+   * MUST be registered before :id/products/:productId to avoid NestJS
+   * matching "bulk-add" as a :productId wildcard.
+   */
+  @Post(':id/products/bulk-add')
+  @RequirePermissions('can_manage_products')
+  async bulkAddProducts(
+    @Param('id') collectionId: string,
+    @Body() body: { productIds: string[] },
+    @CurrentUser() user: any,
+  ) {
+    return this.sellerCollectionsService.bulkAddProducts(
+      collectionId,
+      body.productIds,
+      user.shopId,
+    );
+  }
+
+  /**
    * Add a product to a collection
    */
   @Post(':id/products/:productId')
@@ -169,6 +188,41 @@ export class SellerCollectionsController {
       productId,
       user.shopId,
     );
+  }
+
+  /**
+   * Parametric smart-suggest endpoint.
+   * strategy: new_arrivals | best_sellers | clearance | high_rated | low_stock | price_drop
+   * All options are optional and have sane defaults.
+   */
+  @Get(':id/suggest')
+  @RequirePermissions('can_manage_products')
+  async suggest(
+    @Param('id') collectionId: string,
+    @Query('strategy') strategy: string,
+    @Query('windowDays') windowDays: string,
+    @Query('minDaysSinceListed') minDaysSinceListed: string,
+    @Query('minRating') minRating: string,
+    @Query('minReviews') minReviews: string,
+    @Query('maxStock') maxStock: string,
+    @Query('minStock') minStock: string,
+    @Query('minPrice') minPrice: string,
+    @Query('maxPrice') maxPrice: string,
+    @Query('limit') limit: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.sellerCollectionsService.suggest(collectionId, user.shopId, {
+      strategy: strategy ?? 'new_arrivals',
+      windowDays: windowDays ? Number(windowDays) : undefined,
+      minDaysSinceListed: minDaysSinceListed ? Number(minDaysSinceListed) : undefined,
+      minRating: minRating ? Number(minRating) : undefined,
+      minReviews: minReviews ? Number(minReviews) : undefined,
+      maxStock: maxStock ? Number(maxStock) : undefined,
+      minStock: minStock ? Number(minStock) : undefined,
+      minPrice: minPrice ? Number(minPrice) : undefined,
+      maxPrice: maxPrice ? Number(maxPrice) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   /**

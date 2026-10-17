@@ -5,11 +5,13 @@ import { ShopsService } from './shops.service';
 import { ShopLinksService } from './shop-links.service';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../prisma.module';
+import { SellerCollectionsModule } from '../seller-collections/seller-collections.module';
 
 @Module({
   imports: [
     AuthModule, // Import AuthModule to get JwtAuthGuard and JwtService
     PrismaModule,
+    SellerCollectionsModule,
   ],
   controllers: [ShopsController, ShopLinksResolverController],
   providers: [ShopsService, ShopLinksService],

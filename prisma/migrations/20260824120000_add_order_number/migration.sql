@@ -1,4 +1,4 @@
--- Add human-readable order numbers
+c-- Add human-readable order numbers
 -- Format: QZ-YYYYMMDD-NNNNN  e.g. QZ-20260824-00001
 
 -- Step 1: Add as nullable first so existing rows don't fail

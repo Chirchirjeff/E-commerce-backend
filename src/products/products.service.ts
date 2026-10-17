@@ -69,7 +69,9 @@ export class ProductsService {
     const payload: any = {
       name: createProductDto.name,
       description: createProductDto.description,
+      descriptionBlocks: createProductDto.descriptionBlocks ?? null,
       price: createProductDto.price,
+      salePrice: createProductDto.salePrice ?? null,
       stockQuantity: createProductDto.stockQuantity ?? 0,
       shopId: resolvedShopId,
       marketplaceCategoryId,
@@ -155,7 +157,7 @@ export class ProductsService {
       ];
     }
 
-    return this.prisma.client.product.findMany({
+    const products = await this.prisma.client.product.findMany({
       where,
       include: {
         category: true,
@@ -173,6 +175,8 @@ export class ProductsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return this.enrichWithRankingAndReviews(products);
   }
 
   /**
@@ -338,7 +342,7 @@ export class ProductsService {
   }
 
   async findMine(userId: string) {
-    return this.prisma.client.product.findMany({
+    const products = await this.prisma.client.product.findMany({
       where: { shop: { ownerId: userId } },
       include: {
         category: true,
@@ -356,6 +360,8 @@ export class ProductsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return this.enrichWithRankingAndReviews(products);
   }
 
   // FIXED: Expects id to be a string (UUID) instead of a number
@@ -378,7 +384,9 @@ export class ProductsService {
       },
     });
     if (!product) throw new NotFoundException('Product not found');
-    return product;
+
+    const [enriched] = await this.enrichWithRankingAndReviews([product]);
+    return enriched;
   }
 
   // FIXED: Expects a string id and accepts the cross-verifying shopId footprint
@@ -404,7 +412,9 @@ export class ProductsService {
     const payload: any = {
       name: updateProductDto.name,
       description: updateProductDto.description,
+      descriptionBlocks: updateProductDto.descriptionBlocks ?? undefined,
       price: updateProductDto.price,
+      salePrice: updateProductDto.salePrice !== undefined ? updateProductDto.salePrice : undefined,
       stockQuantity: updateProductDto.stockQuantity,
       thumbnailUrl: updateProductDto.thumbnailUrl,
       images: this.normalizeImages(
@@ -479,14 +489,174 @@ export class ProductsService {
   }
 
   // FIXED: Expects id to be a string (UUID) instead of a number
+  // PROTECTED: Cannot delete if any buyer has purchased or reviewed the
+  // product within the last 90 days. This prevents sellers from hiding
+  // evidence of poor quality (bad reviews, order disputes) by deleting
+  // the product.
   async remove(id: string) {
+    const product = await this.prisma.client.product.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 90);
+
+    // Check for any order items within the last 90 days
+    const recentOrder = await this.prisma.client.orderItem.findFirst({
+      where: {
+        productId: id,
+        order: {
+          paymentStatus: 'SUCCESS',
+          createdAt: { gte: cutoff },
+        },
+      },
+      select: { id: true },
+    });
+
+    if (recentOrder) {
+      throw new BadRequestException(
+        'This product cannot be deleted because it has been purchased within the last 90 days. ' +
+          'This policy protects buyers who may need to leave reviews or raise disputes.',
+      );
+    }
+
+    // Check for any review within the last 90 days
+    const recentReview = await this.prisma.client.review.findFirst({
+      where: {
+        productId: id,
+        createdAt: { gte: cutoff },
+      },
+      select: { id: true },
+    });
+
+    if (recentReview) {
+      throw new BadRequestException(
+        'This product cannot be deleted because it received a review within the last 90 days.',
+      );
+    }
+
     return this.prisma.client.product.delete({
       where: { id },
     });
   }
 
-  private normalizeImages(
-    value: unknown,
+  /**
+   * Check whether a product can be deleted (no buyer actions in last 90 days).
+   * Used by the seller dashboard to show a lock indicator.
+   */
+  async canDelete(id: string): Promise<{ canDelete: boolean; reason?: string }> {
+    const product = await this.prisma.client.product.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 90);
+
+    const recentOrder = await this.prisma.client.orderItem.findFirst({
+      where: {
+        productId: id,
+        order: { paymentStatus: 'SUCCESS', createdAt: { gte: cutoff } },
+      },
+      select: { id: true },
+    });
+
+    if (recentOrder) {
+      return {
+        canDelete: false,
+        reason: 'Has purchases within the last 90 days',
+      };
+    }
+
+    const recentReview = await this.prisma.client.review.findFirst({
+      where: { productId: id, createdAt: { gte: cutoff } },
+      select: { id: true },
+    });
+
+    if (recentReview) {
+      return {
+        canDelete: false,
+        reason: 'Has reviews within the last 90 days',
+      };
+    }
+
+    return { canDelete: true };
+  }
+
+  /**
+   * Enrich a list of products with:
+   *  - averageRating / reviewCount from the reviews table
+   *  - shopRank: per-shop sales rank (1 = best seller in that shop, capped at 5)
+   *
+   * We batch the review aggregates in a single GROUP BY query and compute
+   * order counts per product with another GROUP BY to avoid N+1.
+   */
+  private async enrichWithRankingAndReviews<T extends { id: string; shopId: string }>(
+    products: T[],
+  ): Promise<(T & { averageRating: number; reviewCount: number; shopRank: number | null })[]> {
+    if (products.length === 0) return [];
+
+    const ids = products.map((p) => p.id);
+
+    // ── Review aggregates ──────────────────────────────────────────────────
+    const reviewAggs = await this.prisma.client.review.groupBy({
+      by: ['productId'],
+      where: { productId: { in: ids }, status: 'approved' },
+      _avg: { rating: true },
+      _count: { id: true },
+    });
+
+    const reviewMap = new Map(
+      reviewAggs.map((r) => [
+        r.productId,
+        { averageRating: r._avg.rating ?? 0, reviewCount: r._count.id },
+      ]),
+    );
+
+    // ── Sales counts (paid orders only) ────────────────────────────────────
+    const salesAggs = await this.prisma.client.orderItem.groupBy({
+      by: ['productId'],
+      where: {
+        productId: { in: ids },
+        order: { paymentStatus: 'SUCCESS' },
+      },
+      _sum: { quantity: true },
+    });
+
+    const salesMap = new Map(
+      salesAggs.map((s) => [s.productId, s._sum.quantity ?? 0]),
+    );
+
+    // ── Per-shop ranking (top 5) ────────────────────────────────────────────
+    // Group products by shop, sort by sales descending, assign rank 1..5
+    const shopGroups = new Map<string, Array<{ id: string; sales: number }>>();
+    for (const p of products) {
+      const sales = salesMap.get(p.id) ?? 0;
+      if (!shopGroups.has(p.shopId)) shopGroups.set(p.shopId, []);
+      shopGroups.get(p.shopId)!.push({ id: p.id, sales });
+    }
+
+    const rankMap = new Map<string, number>();
+    for (const group of shopGroups.values()) {
+      group.sort((a, b) => b.sales - a.sales);
+      group.forEach((item, idx) => {
+        if (idx < 5) rankMap.set(item.id, idx + 1);
+      });
+    }
+
+    // ── Merge ──────────────────────────────────────────────────────────────
+    return products.map((p) => ({
+      ...p,
+      averageRating: reviewMap.get(p.id)?.averageRating ?? 0,
+      reviewCount: reviewMap.get(p.id)?.reviewCount ?? 0,
+      shopRank: rankMap.get(p.id) ?? null,
+    }));
+  }
+
+  private normalizeImages(    value: unknown,
   ): NormalizedProductImage[] | undefined {
     if (!value) return undefined;
 

@@ -493,7 +493,7 @@ export class OrdersService {
    * Get recent orders for a vendor's shop
    */
   async findVendorRecent(shopId: string, limit: number) {
-    return this.client.order.findMany({
+    const orders = await this.client.order.findMany({
       where: { shopId },
       take: limit,
       orderBy: {
@@ -509,18 +509,18 @@ export class OrdersService {
           select: {
             id: true,
             name: true,
-            email: true,
           },
         },
       },
     });
+    return orders.map((order) => this.withoutBuyerContactDetails(order));
   }
 
   /**
    * Get all orders for a vendor's shop
    */
   async findVendorOrders(shopId: string) {
-    return this.client.order.findMany({
+    const orders = await this.client.order.findMany({
       where: { shopId },
       include: {
         items: {
@@ -538,7 +538,6 @@ export class OrdersService {
           select: {
             id: true,
             name: true,
-            email: true,
           },
         },
       },
@@ -546,6 +545,7 @@ export class OrdersService {
         createdAt: 'desc',
       },
     });
+    return orders.map((order) => this.withoutBuyerContactDetails(order));
   }
 
   /**
@@ -566,7 +566,7 @@ export class OrdersService {
       throw new ForbiddenException('You do not own this order');
     }
 
-    return order;
+    return this.withoutBuyerContactDetails(order);
   }
 
   private async sellerShopIds(userId: string): Promise<string[]> {
@@ -578,11 +578,28 @@ export class OrdersService {
     return {
       items: { include: { product: { select: { id: true, name: true, thumbnailUrl: true } } } },
       shop: { select: { id: true, name: true, ownerId: true } },
-      buyer: { select: { id: true, name: true, email: true, phone: true } },
-      mpesaTransaction: { select: { status: true, mpesaReceiptNumber: true, phoneNumber: true, createdAt: true } },
+      // Sellers only need the buyer's name to fulfil an order. Contact details
+      // remain available through the admin order endpoints.
+      buyer: { select: { id: true, name: true } },
+      mpesaTransaction: { select: { status: true, mpesaReceiptNumber: true, createdAt: true } },
       events: { orderBy: { createdAt: 'asc' as const } },
       returnRequests: { orderBy: { requestedAt: 'desc' as const } },
       disputes: { orderBy: { openedAt: 'desc' as const } },
+    };
+  }
+
+  /** Remove contact fields stored directly on an order as well as relation fields.
+   * Prisma returns scalar order fields by default when using `include`, so this
+   * explicit boundary prevents seller clients from receiving buyer contact data. */
+  private withoutBuyerContactDetails<T extends Record<string, any>>(order: T) {
+    const { deliveryEmail, deliveryPhone, buyer, mpesaTransaction, ...safeOrder } = order;
+    const { email: _buyerEmail, phone: _buyerPhone, ...safeBuyer } = buyer ?? {};
+    const { phoneNumber: _paymentPhone, ...safeTransaction } = mpesaTransaction ?? {};
+
+    return {
+      ...safeOrder,
+      ...(buyer ? { buyer: safeBuyer } : {}),
+      ...(mpesaTransaction ? { mpesaTransaction: safeTransaction } : {}),
     };
   }
 
@@ -609,7 +626,7 @@ export class OrdersService {
       where.OR = [
         { orderNumber: { contains: search, mode: 'insensitive' } },
         { trackingNumber: { contains: search, mode: 'insensitive' } },
-        { buyer: { is: { OR: [{ name: { contains: search, mode: 'insensitive' } }, { email: { contains: search, mode: 'insensitive' } }, { phone: { contains: search, mode: 'insensitive' } }] } } },
+        { buyer: { is: { name: { contains: search, mode: 'insensitive' } } } },
         { items: { some: { product: { is: { name: { contains: search, mode: 'insensitive' } } } } } },
       ];
     }
@@ -626,7 +643,7 @@ export class OrdersService {
       this.client.order.findMany({ where, include: this.sellerInclude(), orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
       this.client.order.count({ where }),
     ]);
-    return { data, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+    return { data: data.map((order) => this.withoutBuyerContactDetails(order)), pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
 
   async summaryForSeller(userId: string, query: Record<string, string>) {
@@ -643,8 +660,8 @@ export class OrdersService {
     const where = this.buildSellerWhere(shopIds, query);
     const orders = await this.client.order.findMany({ where, include: this.sellerInclude(), orderBy: { createdAt: 'desc' } });
     const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-    const rows = orders.map((order) => [order.orderNumber, order.buyer.name, order.buyer.email, order.items.map((item) => item.product.name).join(' | '), order.total, order.paymentStatus, order.fulfillmentStatus, order.deliveryStatus, order.trackingNumber, order.createdAt.toISOString()].map(escape).join(','));
-    return ['Order number,Buyer,Email,Items,Total,Payment,Fulfillment,Delivery,Tracking number,Order date', ...rows].join('\n');
+    const rows = orders.map((order) => [order.orderNumber, order.buyer.name, order.items.map((item) => item.product.name).join(' | '), order.total, order.paymentStatus, order.fulfillmentStatus, order.deliveryStatus, order.trackingNumber, order.createdAt.toISOString()].map(escape).join(','));
+    return ['Order number,Buyer,Items,Total,Payment,Fulfillment,Delivery,Tracking number,Order date', ...rows].join('\n');
   }
 
   async updateSellerFulfillment(id: string, fulfillmentStatus: string, userId: string) {
@@ -652,13 +669,15 @@ export class OrdersService {
     const order = await this.findVendorOrder(id, userId);
     if (!allowed[order.fulfillmentStatus]?.includes(fulfillmentStatus)) throw new ForbiddenException('This order cannot move to that fulfillment state.');
     const deliveryStatus = fulfillmentStatus === 'DISPATCHED' ? 'IN_TRANSIT' : fulfillmentStatus === 'COMPLETED' ? 'DELIVERED' : order.deliveryStatus;
-    return this.client.order.update({ where: { id }, data: { fulfillmentStatus, deliveryStatus, status: fulfillmentStatus.toLowerCase(), events: { create: { type: `FULFILLMENT_${fulfillmentStatus}`, message: `Seller marked order as ${fulfillmentStatus.replaceAll('_', ' ').toLowerCase()}`, actorId: userId } } }, include: this.sellerInclude() });
+    const updatedOrder = await this.client.order.update({ where: { id }, data: { fulfillmentStatus, deliveryStatus, status: fulfillmentStatus.toLowerCase(), events: { create: { type: `FULFILLMENT_${fulfillmentStatus}`, message: `Seller marked order as ${fulfillmentStatus.replaceAll('_', ' ').toLowerCase()}`, actorId: userId } } }, include: this.sellerInclude() });
+    return this.withoutBuyerContactDetails(updatedOrder);
   }
 
   async dispatchForSeller(id: string, body: { trackingNumber?: string; shippingCarrier?: string; trackingUrl?: string; deliveryMethod?: string }, userId: string) {
     const order = await this.findVendorOrder(id, userId);
     if (order.fulfillmentStatus !== 'READY_FOR_DISPATCH') throw new ForbiddenException('Only orders ready for dispatch can be dispatched.');
     if (!body.trackingNumber?.trim()) throw new ForbiddenException('A tracking number is required to dispatch this order.');
-    return this.client.order.update({ where: { id }, data: { ...body, fulfillmentStatus: 'DISPATCHED', deliveryStatus: 'IN_TRANSIT', dispatchedAt: new Date(), status: 'dispatched', events: { create: { type: 'ORDER_DISPATCHED', message: 'Seller dispatched order', actorId: userId } } }, include: this.sellerInclude() });
+    const updatedOrder = await this.client.order.update({ where: { id }, data: { ...body, fulfillmentStatus: 'DISPATCHED', deliveryStatus: 'IN_TRANSIT', dispatchedAt: new Date(), status: 'dispatched', events: { create: { type: 'ORDER_DISPATCHED', message: 'Seller dispatched order', actorId: userId } } }, include: this.sellerInclude() });
+    return this.withoutBuyerContactDetails(updatedOrder);
   }
 }

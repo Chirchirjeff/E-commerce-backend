@@ -11,7 +11,8 @@ import { EmailModule } from '../email/email.module';
   imports: [
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'your-secret-key',
-      signOptions: { expiresIn: '7d' },
+      // Buyer tokens should not remain usable for a week on a shared browser.
+      signOptions: { expiresIn: '30m' },
     }),
     PrismaModule,
     EmailModule,

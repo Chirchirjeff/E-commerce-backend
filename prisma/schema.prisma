@@ -189,7 +189,13 @@ model Product {
   id            String  @id @default(uuid())
   name          String
   description   String?
+  // descriptionBlocks stores a JSON array of rich description blocks (text, table, image).
+  // Each block: { type: 'text'|'table'|'image', content: string|object }
+  descriptionBlocks Json?
   price         Float
+  // salePrice: when set, this is the discounted price. price becomes the
+  // crossed-out original price shown to buyers.
+  salePrice     Float?
   stockQuantity Int     @default(0)
   thumbnailUrl  String?
   images        Json?
@@ -221,6 +227,7 @@ model Product {
   @@index([categoryId])
   @@index([marketplaceCategoryId])
   @@index([price])
+  @@index([salePrice])
   @@map("products")
 }
 

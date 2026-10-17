@@ -13,6 +13,49 @@ export class SellerCollectionsService {
   constructor(private prisma: PrismaService) {}
 
   /**
+   * Public read — active collections for a shop with trimmed product data
+   * for storefront carousel rendering.
+   */
+  async findPublicByShop(shopId: string): Promise<any[]> {
+    const collections = await this.prisma.client.sellerCollection.findMany({
+      where: {
+        sellerId: shopId,
+        isActive: true,
+      },
+      orderBy: { sortOrder: 'asc' },
+      include: {
+        products: {
+          take: 20, // cap per carousel
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                price: true,
+                thumbnailUrl: true,
+                images: true,
+                stockQuantity: true,
+              },
+            },
+          },
+        },
+        _count: { select: { products: true } },
+      },
+    });
+
+    // Flatten so each collection carries products directly (not via join table)
+    return collections.map((col) => ({
+      id: col.id,
+      name: col.name,
+      slug: col.slug,
+      description: col.description,
+      sortOrder: col.sortOrder,
+      productCount: col._count.products,
+      products: col.products.map((pc) => pc.product),
+    }));
+  }
+
+  /**
    * Create a seller collection
    */
   async create(
@@ -392,6 +435,283 @@ export class SellerCollectionsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  /**
+   * Parametric smart-suggest.
+   * ─────────────────────────────────────────────────────────────────────────
+   * strategy: new_arrivals | best_sellers | clearance | high_rated |
+   *           low_stock    | price_drop
+   * ─────────────────────────────────────────────────────────────────────────
+   * Common option fields (all optional, defaults shown):
+   *   limit              – max results returned          (default 30)
+   *   minPrice / maxPrice – price range filter
+   *
+   * Per-strategy options:
+   *   new_arrivals   windowDays (7)   — listed within last N days
+   *   best_sellers   windowDays (90)  — order window; limit (20)
+   *   clearance      minDaysSinceListed (30), maxStock (20)
+   *                  — old + low/no-movement stock
+   *   high_rated     minRating (4.0), minReviews (3)
+   *   low_stock      maxStock (10), minStock (1)
+   *                  — still sellable but nearly out of stock
+   *   price_drop     (no extra params — surfaces most recently updated
+   *                  products, i.e. potential price-drop candidates)
+   */
+  async suggest(
+    collectionId: string,
+    sellerId: string,
+    opts: {
+      strategy: string
+      windowDays?: number
+      minDaysSinceListed?: number
+      minRating?: number
+      minReviews?: number
+      maxStock?: number
+      minStock?: number
+      minPrice?: number
+      maxPrice?: number
+      limit?: number
+    },
+  ): Promise<any[]> {
+    await this.findOne(collectionId, sellerId);
+
+    // IDs already in this collection — excluded from all results
+    const existing = await this.prisma.client.productCollection.findMany({
+      where: { collectionId },
+      select: { productId: true },
+    });
+    const excludedIds = existing.map((e) => e.productId);
+
+    const priceFilter: any =
+      opts.minPrice !== undefined || opts.maxPrice !== undefined
+        ? {
+            ...(opts.minPrice !== undefined ? { gte: opts.minPrice } : {}),
+            ...(opts.maxPrice !== undefined ? { lte: opts.maxPrice } : {}),
+          }
+        : undefined;
+
+    const productSelect = {
+      id: true,
+      name: true,
+      price: true,
+      stockQuantity: true,
+      thumbnailUrl: true,
+      createdAt: true,
+      updatedAt: true,
+      marketplaceCategory: { select: { id: true, name: true } },
+    };
+
+    const baseWhere = {
+      shopId: sellerId,
+      ...(excludedIds.length ? { id: { notIn: excludedIds } } : {}),
+      ...(priceFilter ? { price: priceFilter } : {}),
+    };
+
+    const limit = Math.min(opts.limit ?? 30, 100);
+
+    // ── new_arrivals ──────────────────────────────────────────────────────
+    if (opts.strategy === 'new_arrivals') {
+      const days = opts.windowDays ?? 7;
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+      return this.prisma.client.product.findMany({
+        where: { ...baseWhere, createdAt: { gte: since } },
+        select: productSelect,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      });
+    }
+
+    // ── best_sellers ──────────────────────────────────────────────────────
+    if (opts.strategy === 'best_sellers') {
+      const days = opts.windowDays ?? 90;
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+
+      const orderTotals = await this.prisma.client.orderItem.groupBy({
+        by: ['productId'],
+        where: {
+          product: { shopId: sellerId },
+          ...(excludedIds.length ? { productId: { notIn: excludedIds } } : {}),
+          order: { createdAt: { gte: since } },
+        },
+        _sum: { quantity: true },
+        orderBy: { _sum: { quantity: 'desc' } },
+        take: limit,
+      });
+
+      if (orderTotals.length === 0) return [];
+
+      const productIds = orderTotals.map((o) => o.productId);
+      const products = await this.prisma.client.product.findMany({
+        where: {
+          id: { in: productIds },
+          ...(priceFilter ? { price: priceFilter } : {}),
+        },
+        select: productSelect,
+      });
+
+      const rankMap = new Map(
+        orderTotals.map((o, i) => [
+          o.productId,
+          { rank: i, totalSold: o._sum.quantity ?? 0 },
+        ]),
+      );
+      return products
+        .map((p) => ({ ...p, ...rankMap.get(p.id) }))
+        .sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99));
+    }
+
+    // ── clearance ─────────────────────────────────────────────────────────
+    if (opts.strategy === 'clearance') {
+      const minDays = opts.minDaysSinceListed ?? 30;
+      const maxStk = opts.maxStock ?? 20;
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - minDays);
+
+      return this.prisma.client.product.findMany({
+        where: {
+          ...baseWhere,
+          createdAt: { lte: cutoff },
+          stockQuantity: { lte: maxStk, gt: 0 },
+        },
+        select: productSelect,
+        orderBy: { createdAt: 'asc' }, // oldest first
+        take: limit,
+      });
+    }
+
+    // ── high_rated ────────────────────────────────────────────────────────
+    if (opts.strategy === 'high_rated') {
+      const minRating = opts.minRating ?? 4.0;
+      const minReviews = opts.minReviews ?? 3;
+
+      // Aggregate review avg per product
+      const aggs = await this.prisma.client.review.groupBy({
+        by: ['productId'],
+        where: {
+          product: { shopId: sellerId },
+          ...(excludedIds.length ? { productId: { notIn: excludedIds } } : {}),
+        },
+        _avg: { rating: true },
+        _count: { rating: true },
+        having: {
+          rating: {
+            _avg: { gte: minRating },
+            _count: { gte: minReviews },
+          },
+        },
+        orderBy: { _avg: { rating: 'desc' } },
+        take: limit,
+      });
+
+      if (aggs.length === 0) return [];
+
+      const productIds = aggs.map((a) => a.productId);
+      const products = await this.prisma.client.product.findMany({
+        where: {
+          id: { in: productIds },
+          ...(priceFilter ? { price: priceFilter } : {}),
+        },
+        select: productSelect,
+      });
+
+      const ratingMap = new Map(
+        aggs.map((a) => [
+          a.productId,
+          {
+            avgRating: Math.round((a._avg.rating ?? 0) * 10) / 10,
+            reviewCount: a._count.rating,
+          },
+        ]),
+      );
+      return products
+        .map((p) => ({ ...p, ...ratingMap.get(p.id) }))
+        .sort(
+          (a, b) => (b.avgRating ?? 0) - (a.avgRating ?? 0),
+        );
+    }
+
+    // ── low_stock ─────────────────────────────────────────────────────────
+    if (opts.strategy === 'low_stock') {
+      const maxStk = opts.maxStock ?? 10;
+      const minStk = opts.minStock ?? 1;
+
+      return this.prisma.client.product.findMany({
+        where: {
+          ...baseWhere,
+          stockQuantity: { lte: maxStk, gte: minStk },
+        },
+        select: productSelect,
+        orderBy: { stockQuantity: 'asc' },
+        take: limit,
+      });
+    }
+
+    // ── price_drop ────────────────────────────────────────────────────────
+    if (opts.strategy === 'price_drop') {
+      // Surface most recently *updated* products (price is what sellers
+      // commonly change) that are not already in the collection.
+      const minDays = opts.minDaysSinceListed ?? 30;
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - minDays);
+
+      return this.prisma.client.product.findMany({
+        where: {
+          ...baseWhere,
+          createdAt: { lte: cutoff },  // listed for a while
+          updatedAt: {                  // but touched recently
+            gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000),
+          },
+        },
+        select: productSelect,
+        orderBy: { updatedAt: 'desc' },
+        take: limit,
+      });
+    }
+
+    // Unknown strategy — return empty
+    return [];
+  }
+
+  /**
+   * Bulk-add multiple products to a collection at once
+   */
+  async bulkAddProducts(
+    collectionId: string,
+    productIds: string[],
+    sellerId: string,
+  ): Promise<{ added: number; skipped: number }> {
+    if (!sellerId) {
+      throw new BadRequestException('Shop context is required to add products to a collection');
+    }
+
+    await this.findOne(collectionId, sellerId);
+
+    // Verify all products belong to the seller
+    const products = await this.prisma.client.product.findMany({
+      where: { id: { in: productIds }, shopId: sellerId },
+      select: { id: true },
+    });
+    const validIds = products.map((p) => p.id);
+
+    // Find already-existing memberships
+    const existing = await this.prisma.client.productCollection.findMany({
+      where: { collectionId, productId: { in: validIds } },
+      select: { productId: true },
+    });
+    const existingSet = new Set(existing.map((e) => e.productId));
+    const toAdd = validIds.filter((id) => !existingSet.has(id));
+
+    if (toAdd.length > 0) {
+      await this.prisma.client.productCollection.createMany({
+        data: toAdd.map((productId) => ({ productId, collectionId })),
+        skipDuplicates: true,
+      });
+    }
+
+    return { added: toAdd.length, skipped: validIds.length - toAdd.length };
   }
 
   /**

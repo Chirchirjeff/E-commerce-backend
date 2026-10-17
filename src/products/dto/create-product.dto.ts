@@ -79,4 +79,15 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  // Discounted price — when set, `price` is displayed crossed out.
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  salePrice?: number;
+
+  // Rich description blocks: array of { type: 'text'|'table'|'image', content }
+  @IsOptional()
+  descriptionBlocks?: any[];
 }

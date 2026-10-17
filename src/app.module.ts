@@ -21,6 +21,7 @@ import { KycModule } from './kyc/kyc.module';
 import { SellerCollectionsModule } from './seller-collections/seller-collections.module';
 import { SellerTagsModule } from './seller-tags/seller-tags.module';
 import { MpesaModule } from './mpesa/mpesa.module';
+import { ReviewsModule } from './reviews/reviews.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { MpesaModule } from './mpesa/mpesa.module';
     SellerCollectionsModule,
     SellerTagsModule,
     MpesaModule,
+    ReviewsModule,
   ],
   controllers: [AppController, UploadsController],
   providers: [

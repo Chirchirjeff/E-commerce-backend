@@ -4,12 +4,16 @@ import {
   Injectable,
   UnauthorizedException,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { EmailService } from '../email/email.service';
+
+/** Maximum saved delivery addresses per buyer (keep in sync with the webapp). */
+export const MAX_BUYER_ADDRESSES = 5;
 
 @Injectable()
 export class AuthService {
@@ -355,31 +359,118 @@ export class AuthService {
     return { user };
   }
 
+  async updateBuyerProfile(userId: string, body: { name?: string; phone?: string | null }) {
+    const data: { name?: string; phone?: string | null } = {};
+    if (body.name !== undefined) {
+      const name = String(body.name ?? '').trim();
+      if (!name) throw new BadRequestException('Please enter your full name');
+      if (name.length > 120) throw new BadRequestException('Name is too long');
+      data.name = name;
+    }
+    if (body.phone !== undefined) {
+      const phone = String(body.phone ?? '').replace(/\s+/g, '');
+      if (phone && !/^(\+?254|0)[17]\d{8}$/.test(phone)) {
+        throw new BadRequestException('Enter a valid Kenyan phone number, e.g. 0712 345 678');
+      }
+      data.phone = phone || null;
+    }
+    if (Object.keys(data).length) {
+      await this.prisma.client.user.update({ where: { id: userId }, data });
+    }
+    return this.getSellerProfile(userId);
+  }
+
+  async changeBuyerPassword(userId: string, body: { currentPassword: string; newPassword: string }) {
+    const current = String(body.currentPassword ?? '');
+    const next = String(body.newPassword ?? '');
+    if (next.length < 8) throw new BadRequestException('New password must be at least 8 characters');
+    const user = await this.prisma.client.user.findUnique({ where: { id: userId }, select: { password: true } });
+    if (!user) throw new UnauthorizedException('User not found');
+    if (!(await bcrypt.compare(current, user.password))) {
+      throw new BadRequestException('Your current password is incorrect');
+    }
+    await this.prisma.client.user.update({ where: { id: userId }, data: { password: await bcrypt.hash(next, 10) } });
+    return { message: 'Password updated' };
+  }
+
   async saveBuyerAddress(userId: string, body: any) {
     const required = ['recipientName', 'phone', 'addressLine', 'city', 'state', 'postalCode'];
     if (required.some((field) => !String(body[field] ?? '').trim())) {
       throw new BadRequestException('Please complete all delivery address fields');
     }
-    const existing = await this.prisma.client.buyerAddress.count({ where: { userId } });
-    if (body.isDefault || existing === 0) {
-      await this.prisma.client.buyerAddress.updateMany({ where: { userId }, data: { isDefault: false } });
+    const client = this.prisma.client;
+    const owned = body.id
+      ? await client.buyerAddress.findFirst({ where: { id: body.id, userId }, select: { id: true, isDefault: true } })
+      : null;
+    if (body.id && !owned) throw new ForbiddenException('Delivery address not found');
+    if (!owned && (await client.buyerAddress.count({ where: { userId } })) >= MAX_BUYER_ADDRESSES) {
+      throw new BadRequestException(
+        `You can save up to ${MAX_BUYER_ADDRESSES} delivery addresses. Remove one to add another.`,
+      );
     }
+
+    const otherDefault = await client.buyerAddress.findFirst({
+      where: { userId, isDefault: true, ...(owned ? { id: { not: owned.id } } : {}) },
+      select: { id: true },
+    });
+    // The buyer always keeps exactly one default: honour an explicit request,
+    // otherwise keep the current default, or make this one default if none exists.
+    const isDefault = body.isDefault === true || (owned?.isDefault ?? false) || !otherDefault;
+
     const data = {
       label: String(body.label ?? 'Home').trim() || 'Home',
       recipientName: String(body.recipientName).trim(), phone: String(body.phone).trim(),
       addressLine: String(body.addressLine).trim(), city: String(body.city).trim(),
       state: String(body.state).trim(), postalCode: String(body.postalCode).trim(),
-      isDefault: body.isDefault || existing === 0,
+      isDefault,
     };
-    if (body.id) {
-      const ownedAddress = await this.prisma.client.buyerAddress.findFirst({ where: { id: body.id, userId }, select: { id: true } });
-      if (!ownedAddress) throw new ForbiddenException('Delivery address not found');
+
+    const address = await client.$transaction(async (tx) => {
+      if (isDefault) await tx.buyerAddress.updateMany({ where: { userId }, data: { isDefault: false } });
+      return owned
+        ? tx.buyerAddress.update({ where: { id: owned.id }, data })
+        : tx.buyerAddress.create({ data: { userId, ...data } });
+    });
+    // Only overwrite the account's own name/phone when the caller asks for it —
+    // an address may be for someone else (e.g. a gift or a relative).
+    if (body.syncProfile === true) {
+      await client.user.update({ where: { id: userId }, data: { name: data.recipientName, phone: data.phone } });
     }
-    const address = body.id
-      ? await this.prisma.client.buyerAddress.update({ where: { id: body.id }, data })
-      : await this.prisma.client.buyerAddress.create({ data: { userId, ...data } });
-    await this.prisma.client.user.update({ where: { id: userId }, data: { name: data.recipientName, phone: data.phone } });
     return { address };
+  }
+
+  async setDefaultBuyerAddress(userId: string, addressId: string) {
+    const client = this.prisma.client;
+    const owned = await client.buyerAddress.findFirst({ where: { id: addressId, userId }, select: { id: true } });
+    if (!owned) throw new NotFoundException('Delivery address not found');
+    await client.$transaction([
+      client.buyerAddress.updateMany({ where: { userId }, data: { isDefault: false } }),
+      client.buyerAddress.update({ where: { id: addressId }, data: { isDefault: true } }),
+    ]);
+    return this.listBuyerAddresses(userId);
+  }
+
+  async deleteBuyerAddress(userId: string, addressId: string) {
+    const client = this.prisma.client;
+    const owned = await client.buyerAddress.findFirst({ where: { id: addressId, userId }, select: { id: true, isDefault: true } });
+    if (!owned) throw new NotFoundException('Delivery address not found');
+    await client.$transaction(async (tx) => {
+      await tx.buyerAddress.delete({ where: { id: addressId } });
+      if (owned.isDefault) {
+        // Promote the most recently used remaining address so a default always exists.
+        const next = await tx.buyerAddress.findFirst({ where: { userId }, orderBy: { updatedAt: 'desc' }, select: { id: true } });
+        if (next) await tx.buyerAddress.update({ where: { id: next.id }, data: { isDefault: true } });
+      }
+    });
+    return this.listBuyerAddresses(userId);
+  }
+
+  private async listBuyerAddresses(userId: string) {
+    const addresses = await this.prisma.client.buyerAddress.findMany({
+      where: { userId },
+      orderBy: [{ isDefault: 'desc' }, { updatedAt: 'desc' }],
+    });
+    return { addresses };
   }
 
   async getAdminProfile(adminId: string) {

@@ -111,6 +111,12 @@ export class OrdersController {
     return this.ordersService.findByTrackingToken(token, user.id);
   }
 
+  /** The signed-in buyer's own orders, newest first. */
+  @Get('mine')
+  async findMine(@CurrentUser() user: any) {
+    return this.ordersService.findMineForBuyer(user.id);
+  }
+
   @Get('mine/number/:orderNumber')
   async trackByOrderNumber(@Param('orderNumber') orderNumber: string, @CurrentUser() user: any) {
     return this.ordersService.findForBuyerByOrderNumber(orderNumber, user.id);

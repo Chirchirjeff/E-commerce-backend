@@ -1,8 +1,11 @@
 // Complete schema for multivendor ecommerce platform with RBAC
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Required for Neon pooled connections — used by prisma migrate and prisma db push
+  // Set this to the non-pooled Neon connection string in production
+  directUrl = env("DIRECT_URL")
 }
 
 generator client {
@@ -100,6 +103,7 @@ model User {
   verificationCodes AuthVerificationCode[]
   reviews   Review[]
   kyc       KYC? // One-to-one with KYC
+  profileChangeRequests ProfileChangeRequest[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -786,6 +790,54 @@ model KYCReview {
   @@index([adminId])
   @@index([status])
   @@map("kyc_reviews")
+}
+
+// ========================================
+// SELLER PROFILE CHANGE REQUESTS
+// ========================================
+
+/// Audit trail and workflow for sellers changing their account / business
+/// details. Contact details (email, phone) are confirmed with a one-time code;
+/// KYC-verified details (legal name, business name, address, tax PIN) go to an
+/// admin for review. Rows are never deleted.
+model ProfileChangeRequest {
+  id              String    @id @default(uuid())
+  /// Short human-readable reference shown to the seller and support, e.g. PCR-7F3K9Q
+  reference       String    @unique
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// EMAIL | PHONE | FULL_NAME | BUSINESS_NAME | BUSINESS_ADDRESS | TAX_ID
+  field           String
+  oldValue        String?
+  newValue        String
+  reasonCode      String
+  reasonNote      String?
+  supportingDocUrl String?
+
+  /// OTP_NEW_EMAIL | OTP_CURRENT_EMAIL | ADMIN_REVIEW
+  channel         String
+  /// PENDING_VERIFICATION | PENDING_REVIEW | COMPLETED | REJECTED | CANCELLED | EXPIRED
+  status          String
+
+  codeHash        String?
+  codeExpiresAt   DateTime?
+  codeAttempts    Int       @default(0)
+
+  reviewedBy      String?   // Admin ID
+  reviewNote      String?
+  reviewedAt      DateTime?
+  completedAt     DateTime?
+
+  requestIp       String?
+  userAgent       String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId, field, status])
+  @@index([status, createdAt])
+  @@map("profile_change_requests")
 }
 
 // ========================================

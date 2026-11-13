@@ -49,13 +49,25 @@ async function bootstrap() {
     next();
   });
 
-  // serve static files from public folder so uploaded files are reachable at /uploads/*
-  app.useStaticAssets(join(process.cwd(), 'public'));
+  // Static assets no longer served locally — files are uploaded to Cloudinary
+
+  // Build allowed origins list from environment variable (comma-separated)
+  // e.g. ALLOWED_ORIGINS=https://admin.yourdomain.com,https://yourdomain.com,https://seller.yourdomain.com
+  const productionOrigins = (process.env.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
 
   app.enableCors({
     origin:
       process.env.NODE_ENV === 'production'
-        ? ['https://your-domain.com']
+        ? (origin, callback) => {
+            // Allow server-to-server requests (no origin) and listed domains
+            if (!origin || productionOrigins.includes(origin)) {
+              return callback(null, true);
+            }
+            callback(new Error(`CORS: origin ${origin} not allowed`), false);
+          }
         : (origin, callback) => {
             if (!origin) return callback(null, true);
 

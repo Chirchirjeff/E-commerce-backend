@@ -22,6 +22,7 @@ import { SellerCollectionsModule } from './seller-collections/seller-collections
 import { SellerTagsModule } from './seller-tags/seller-tags.module';
 import { MpesaModule } from './mpesa/mpesa.module';
 import { ReviewsModule } from './reviews/reviews.module';
+import { ProfileChangesModule } from './profile-changes/profile-changes.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { ReviewsModule } from './reviews/reviews.module';
     SellerTagsModule,
     MpesaModule,
     ReviewsModule,
+    ProfileChangesModule,
   ],
   controllers: [AppController, UploadsController],
   providers: [

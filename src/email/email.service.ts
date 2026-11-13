@@ -31,6 +31,23 @@ interface PaymentReceivedEmail {
   mpesaReceiptNumber?: string;
 }
 
+interface SellerSecurityCodeEmail {
+  recipientEmail: string;
+  recipientName: string;
+  code: string;
+  /** Pre-escaped HTML fragment, e.g. "change your phone number to <strong>…</strong>". */
+  action: string;
+  reference: string;
+}
+
+interface SellerNoticeEmail {
+  recipientEmail: string;
+  recipientName: string;
+  subject: string;
+  /** Pre-escaped HTML paragraphs — callers must escape any user-supplied text. */
+  paragraphs: string[];
+}
+
 interface RenderedEmail {
   to: string[];
   subject: string;
@@ -196,6 +213,43 @@ export class EmailService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Payment receipt email failed for order ${email.orderNumber}: ${message}`);
+    }
+  }
+
+  private sellerLayout(heading: string, name: string, body: string) {
+    return `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#0f766e;font-size:24px">${heading}</h1><p>Hello ${escapeHtml(name)},</p>${body}<p style="margin:28px 0 0">Regards,<br /><strong>The Quza Team</strong></p></main></body></html>`;
+  }
+
+  /** One-time code confirming a seller account change. Throws if it can't be sent. */
+  async sendSellerSecurityCodeEmail(email: SellerSecurityCodeEmail): Promise<void> {
+    const body = `<p>We received a request to ${email.action} (reference <strong>${escapeHtml(email.reference)}</strong>).</p><p>Enter this code in your seller dashboard to confirm. It expires in 10 minutes.</p><p style="margin:28px 0;padding:16px;text-align:center;border-radius:8px;background:#f0fdfa;color:#115e59;font-family:monospace;font-size:30px;font-weight:bold;letter-spacing:6px">${escapeHtml(email.code)}</p><p><strong>Never share this code.</strong> Quza staff will never ask for it. If you didn't request this change, ignore this email and change your password.</p>`;
+    try {
+      await this.getTransporter().sendMail({
+        from: this.getFromAddress(),
+        to: email.recipientEmail,
+        subject: `Your Quza verification code: ${email.code}`,
+        html: this.sellerLayout('Confirm your account change', email.recipientName, body),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Seller security code email failed: ${message}`);
+      throw new ServiceUnavailableException('We could not send the verification code. Check the email address and try again.');
+    }
+  }
+
+  /** Informational seller account notice. Delivery failures are logged, not thrown. */
+  async sendSellerNoticeEmail(email: SellerNoticeEmail): Promise<void> {
+    const body = email.paragraphs.map((p) => `<p>${p}</p>`).join('');
+    try {
+      await this.getTransporter().sendMail({
+        from: this.getFromAddress(),
+        to: email.recipientEmail,
+        subject: email.subject,
+        html: this.sellerLayout(escapeHtml(email.subject), email.recipientName, body),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Seller notice email failed (${email.subject}): ${message}`);
     }
   }
 }

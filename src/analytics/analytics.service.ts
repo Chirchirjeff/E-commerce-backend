@@ -343,4 +343,91 @@ export class AnalyticsService {
       value: item._count,
     }));
   }
+
+  /**
+   * Everything the seller analytics page needs for one period, compared with
+   * the period immediately before it. Days are bucketed in East Africa Time.
+   */
+  async getSellerAnalytics(shopId: string, days: number) {
+    const DAY = 24 * 60 * 60 * 1000;
+    const EAT_OFFSET = 3 * 60 * 60 * 1000;
+    const dayKey = (d: Date) => new Date(d.getTime() + EAT_OFFSET).toISOString().slice(0, 10);
+
+    const now = new Date();
+    const todayStartEat = new Date(dayKey(now) + 'T00:00:00.000Z').getTime() - EAT_OFFSET;
+    const start = new Date(todayStartEat - (days - 1) * DAY);
+    const prevStart = new Date(start.getTime() - days * DAY);
+    const active = { not: 'cancelled' };
+
+    const [current, previous, statusRows, itemRows, totalProducts, ratingAgg] = await Promise.all([
+      this.client.order.findMany({
+        where: { shopId, createdAt: { gte: start } },
+        select: { total: true, createdAt: true, status: true, buyerId: true },
+      }),
+      this.client.order.findMany({
+        where: { shopId, createdAt: { gte: prevStart, lt: start }, status: active },
+        select: { total: true, buyerId: true },
+      }),
+      this.client.order.groupBy({ by: ['status'], where: { shopId, createdAt: { gte: start } }, _count: true }),
+      this.client.orderItem.groupBy({
+        by: ['productId'],
+        where: { order: { shopId, createdAt: { gte: start }, status: active } },
+        _sum: { subtotal: true, quantity: true },
+        orderBy: { _sum: { subtotal: 'desc' } },
+        take: 5,
+      }),
+      this.client.product.count({ where: { shopId } }),
+      this.client.review.aggregate({ where: { shopId, status: 'approved' }, _avg: { rating: true }, _count: true }),
+    ]);
+
+    const paid = current.filter((o) => o.status !== 'cancelled');
+    const sum = (rows: { total: number }[]) => rows.reduce((t, o) => t + o.total, 0);
+    const kpis = (rows: { total: number; buyerId: string | null }[]) => {
+      const revenue = sum(rows);
+      return {
+        revenue,
+        orders: rows.length,
+        customers: new Set(rows.map((o) => o.buyerId).filter(Boolean)).size,
+        averageOrderValue: rows.length ? revenue / rows.length : 0,
+      };
+    };
+
+    const buckets = new Map<string, { date: string; revenue: number; orders: number }>();
+    for (let t = start.getTime(); t <= todayStartEat; t += DAY) {
+      const key = dayKey(new Date(t));
+      buckets.set(key, { date: key, revenue: 0, orders: 0 });
+    }
+    for (const o of paid) {
+      const b = buckets.get(dayKey(o.createdAt));
+      if (b) { b.revenue += o.total; b.orders += 1; }
+    }
+
+    const products = itemRows.length
+      ? await this.client.product.findMany({
+          where: { id: { in: itemRows.map((r) => r.productId) } },
+          select: { id: true, name: true, thumbnailUrl: true },
+        })
+      : [];
+    const productById = new Map(products.map((p) => [p.id, p]));
+
+    return {
+      range: { days, start: start.toISOString(), end: now.toISOString() },
+      current: kpis(paid),
+      previous: kpis(previous),
+      series: Array.from(buckets.values()),
+      statusDistribution: statusRows
+        .map((r) => ({ name: r.status, value: r._count }))
+        .sort((a, b) => b.value - a.value),
+      topProducts: itemRows.map((r) => ({
+        productId: r.productId,
+        name: productById.get(r.productId)?.name ?? 'Deleted product',
+        thumbnailUrl: productById.get(r.productId)?.thumbnailUrl ?? null,
+        revenue: r._sum.subtotal ?? 0,
+        quantity: r._sum.quantity ?? 0,
+      })),
+      totalProducts,
+      averageRating: Number(ratingAgg._avg.rating?.toFixed(1)) || 0,
+      reviewCount: ratingAgg._count,
+    };
+  }
 }

@@ -4,6 +4,29 @@ import { PrismaService } from '../prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 
+/**
+ * Shop fields returned on buyer-facing order lookups. Includes the shop's
+ * newest active link so the storefront can send the buyer back to the shop
+ * the order came from ("Continue Shopping").
+ */
+const BUYER_SHOP_SELECT = {
+  id: true,
+  name: true,
+  shopLinks: {
+    where: { isActive: true },
+    orderBy: { createdAt: 'desc' as const },
+    take: 1,
+    select: { token: true },
+  },
+};
+
+function withShopToken(shop: { id: string; name: string; shopLinks: { token: string }[] } | null) {
+  return {
+    shop: shop ? { id: shop.id, name: shop.name } : null,
+    shopToken: shop?.shopLinks[0]?.token ?? null,
+  };
+}
+
 @Injectable()
 export class OrdersService {
   constructor(private prisma: PrismaService) {}
@@ -261,9 +284,7 @@ export class OrdersService {
             },
           },
         },
-        shop: {
-          select: { id: true, name: true },
-        },
+        shop: { select: BUYER_SHOP_SELECT },
         buyer: {
           select: { id: true, name: true, email: true, phone: true },
         },
@@ -285,6 +306,7 @@ export class OrdersService {
     // Fall back to buyer relation fields for legacy orders that predate the columns.
     return {
       ...order,
+      ...withShopToken(order.shop),
       customerName:    order.deliveryName    ?? order.buyer?.name    ?? '',
       customerEmail:   order.deliveryEmail   ?? order.buyer?.email   ?? '',
       customerPhone:   order.deliveryPhone   ?? order.buyer?.phone
@@ -321,7 +343,7 @@ export class OrdersService {
             product: { select: { id: true, name: true, thumbnailUrl: true } },
           },
         },
-        shop: { select: { id: true, name: true } },
+        shop: { select: BUYER_SHOP_SELECT },
         buyer: { select: { id: true, name: true, email: true, phone: true } },
         mpesaTransaction: {
           select: { mpesaReceiptNumber: true, phoneNumber: true, status: true },
@@ -335,6 +357,7 @@ export class OrdersService {
 
     return {
       ...order,
+      ...withShopToken(order.shop),
       customerName:    order.deliveryName    ?? order.buyer?.name    ?? '',
       customerEmail:   order.deliveryEmail   ?? order.buyer?.email   ?? '',
       customerPhone:   order.deliveryPhone   ?? order.buyer?.phone
@@ -351,6 +374,25 @@ export class OrdersService {
     };
   }
 
+  /** Order history for the buyer app: newest first, compact item info. */
+  async findMineForBuyer(buyerId: string) {
+    const orders = await this.client.order.findMany({
+      where: { buyerId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: {
+        items: { include: { product: { select: { id: true, name: true, thumbnailUrl: true } } } },
+        shop: { select: BUYER_SHOP_SELECT },
+        mpesaTransaction: { select: { mpesaReceiptNumber: true } },
+      },
+    });
+    return orders.map((order) => ({
+      ...order,
+      ...withShopToken(order.shop),
+      mpesaReceiptNumber: order.mpesaTransaction?.mpesaReceiptNumber ?? null,
+    }));
+  }
+
   /** Returns an order only to the verified buyer who placed it. */
   async findForBuyerByOrderNumber(orderNumber: string, buyerId: string) {
     const buyer = await this.client.user.findUnique({
@@ -365,7 +407,7 @@ export class OrdersService {
       where: { orderNumber: orderNumber.trim().toUpperCase(), buyerId },
       include: {
         items: { include: { product: { select: { id: true, name: true, thumbnailUrl: true } } } },
-        shop: { select: { id: true, name: true } },
+        shop: { select: BUYER_SHOP_SELECT },
         mpesaTransaction: { select: { mpesaReceiptNumber: true, phoneNumber: true, status: true } },
       },
     });
@@ -375,6 +417,7 @@ export class OrdersService {
 
     return {
       ...order,
+      ...withShopToken(order.shop),
       customerName: order.deliveryName ?? '',
       customerEmail: order.deliveryEmail ?? '',
       customerPhone: order.deliveryPhone ?? order.mpesaTransaction?.phoneNumber ?? '',

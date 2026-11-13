@@ -14,6 +14,26 @@ export class AnalyticsController {
   ) {}
 
   /**
+   * Seller analytics for the signed-in seller's own shop.
+   * GET /analytics/seller?days=30  (7 | 30 | 90 | 365)
+   * No admin permission needed — the shop is resolved from the seller's own
+   * account, so a seller can only ever see their own numbers.
+   */
+  @Get('seller')
+  async getSellerAnalytics(@CurrentUser() user: any, @Query('days') daysParam?: string) {
+    if (user?.isAdmin) throw new BadRequestException('Use the platform analytics endpoints for admin accounts.');
+    const allowed = [7, 30, 90, 365];
+    const days = allowed.includes(Number(daysParam)) ? Number(daysParam) : 30;
+    const shop = await this.prisma.client.shop.findFirst({
+      where: { ownerId: user.id },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true },
+    });
+    if (!shop) return null;
+    return { shop, ...(await this.analyticsService.getSellerAnalytics(shop.id, days)) };
+  }
+
+  /**
    * Get dashboard stats
    * - For admins: returns platform-wide stats
    * - For vendors: returns only their shop's stats
@@ -27,7 +47,7 @@ export class AnalyticsController {
     if (isVendor) {
       // Get vendor's shop
       const shop = await this.prisma.client.shop.findFirst({
-        where: { ownerId: user.sub },
+        where: { ownerId: user.id },
       });
 
       if (!shop) {
@@ -64,7 +84,7 @@ export class AnalyticsController {
 
     if (isVendor) {
       const shop = await this.prisma.client.shop.findFirst({
-        where: { ownerId: user.sub },
+        where: { ownerId: user.id },
       });
 
       if (!shop) {
@@ -104,7 +124,7 @@ export class AnalyticsController {
 
     if (isVendor) {
       const shop = await this.prisma.client.shop.findFirst({
-        where: { ownerId: user.sub },
+        where: { ownerId: user.id },
       });
 
       if (!shop) {

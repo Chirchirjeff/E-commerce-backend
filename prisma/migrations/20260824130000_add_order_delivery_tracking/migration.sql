@@ -12,6 +12,3 @@ ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "trackingNumber"    TEXT;
 ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "shippingCarrier"   TEXT;
 ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "estimatedDelivery" TIMESTAMP(3);
 ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "dispatchedAt"      TIMESTAMP(3);
-
--- Index trackingToken for the public tracking endpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "orders_trackingToken_idx" ON "orders"("trackingToken");

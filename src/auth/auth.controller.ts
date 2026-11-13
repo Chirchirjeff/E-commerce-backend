@@ -3,6 +3,9 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
+  Delete,
+  Param,
   Body,
   UseGuards,
   Req,
@@ -88,9 +91,32 @@ export class AuthController {
     return this.authService.getSellerProfile(req.user.id);
   }
 
+  /** Buyer edits their own account name / phone. */
+  @Patch('me')
+  async updateBuyerProfile(@Req() req: any, @Body() body: { name?: string; phone?: string | null }) {
+    return this.authService.updateBuyerProfile(req.user.id, body);
+  }
+
+  /** Buyer changes their password while signed in. */
+  @Post('me/password')
+  @HttpCode(HttpStatus.OK)
+  async changeBuyerPassword(@Req() req: any, @Body() body: { currentPassword: string; newPassword: string }) {
+    return this.authService.changeBuyerPassword(req.user.id, body);
+  }
+
   @Post('me/addresses')
   async saveBuyerAddress(@Req() req: any, @Body() body: any) {
     return this.authService.saveBuyerAddress(req.user.id, body);
+  }
+
+  @Patch('me/addresses/:id/default')
+  async setDefaultBuyerAddress(@Req() req: any, @Param('id') id: string) {
+    return this.authService.setDefaultBuyerAddress(req.user.id, id);
+  }
+
+  @Delete('me/addresses/:id')
+  async deleteBuyerAddress(@Req() req: any, @Param('id') id: string) {
+    return this.authService.deleteBuyerAddress(req.user.id, id);
   }
 
   /**

@@ -34,7 +34,7 @@ export class ReviewsService {
         productId: dto.productId,
         order: {
           buyerId,
-          paymentStatus: 'SUCCESS',
+          paymentStatus: { in: ['PAID', 'SUCCESS'] }, // M-Pesa callback writes PAID
         },
       },
       select: { id: true },
@@ -115,7 +115,7 @@ export class ReviewsService {
     const paidOrder = await this.prisma.client.orderItem.findFirst({
       where: {
         productId,
-        order: { buyerId, paymentStatus: 'SUCCESS' },
+        order: { buyerId, paymentStatus: { in: ['PAID', 'SUCCESS'] } },
       },
       select: { id: true },
     });

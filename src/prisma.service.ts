@@ -15,8 +15,18 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
       process.exit(1);
     }
 
+    // When running on Render (or any serverless/edge environment) the
+    // DATABASE_URL should include ?pgbouncer=true so Prisma knows it is
+    // talking to a PgBouncer connection pooler (Neon's pooled endpoint).
+    // In that mode Prisma must use a direct (non-pooled) URL for migrations
+    // and schema introspection, supplied via DIRECT_URL.
     this.client = new PrismaClient({
       log: [{ emit: 'event', level: 'error' }],
+      datasources: {
+        db: {
+          url: connectionString,
+        },
+      },
     });
 
     (this.client as any).$on('error', (event: { message: string }) => {

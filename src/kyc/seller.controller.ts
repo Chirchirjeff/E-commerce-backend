@@ -2,6 +2,9 @@
  * SellerController — thin alias layer under /seller for the seller-onboarding
  * frontend. Maps /seller/kyc-status and /seller/kyc-submit to the existing
  * KycService methods so we don't duplicate business logic.
+ *
+ * Files are held in memory by multer and uploaded to Cloudinary immediately —
+ * no disk writes, works correctly on ephemeral Render instances.
  */
 import {
   Controller,
@@ -14,35 +17,14 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import { randomBytes } from 'crypto';
-import { existsSync, mkdirSync } from 'fs';
+import { memoryStorage } from 'multer';
 import { KycService } from './kyc.service';
 import { CreateKycDto } from './dto/create-kyc.dto';
+import { uploadToCloudinary } from '../lib/cloudinary';
 
-const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads');
-if (!existsSync(UPLOAD_DIR)) mkdirSync(UPLOAD_DIR, { recursive: true });
-
-const kycStorage = diskStorage({
-  destination: UPLOAD_DIR,
-  filename: (_req, file, cb) => {
-    const rnd = randomBytes(6).toString('hex');
-    const name = `${Date.now()}-${rnd}${extname(file.originalname)}`;
-    cb(null, name);
-  },
-});
-
-interface MulterFile {
-  fieldname: string;
-  originalname: string;
-  encoding: string;
-  mimetype: string;
-  size: number;
-  filename?: string;
-  path?: string;
-  buffer?: Buffer;
-}
+const KYC_FOLDER = process.env.CLOUDINARY_FOLDER
+  ? `${process.env.CLOUDINARY_FOLDER}/kyc`
+  : 'quza/kyc';
 
 @Controller('seller')
 export class SellerController {
@@ -69,14 +51,27 @@ export class SellerController {
         { name: 'idFile', maxCount: 1 },
         { name: 'businessLicense', maxCount: 1 },
       ],
-      { storage: kycStorage },
+      {
+        storage: memoryStorage(),
+        limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB per file
+        fileFilter: (_req, file, cb) => {
+          const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+          if (!allowed.includes(file.mimetype)) {
+            return cb(
+              new BadRequestException('Only JPG, PNG, WebP or PDF files are accepted') as any,
+              false,
+            );
+          }
+          cb(null, true);
+        },
+      },
     ),
   )
   async submitKyc(
     @Req() req: any,
     @Body() createKycDto: CreateKycDto,
     @UploadedFiles()
-    files: { idFile?: MulterFile[]; businessLicense?: MulterFile[] },
+    files: { idFile?: Express.Multer.File[]; businessLicense?: Express.Multer.File[] },
   ) {
     const idFileArr = files?.idFile;
     const licenseArr = files?.businessLicense;
@@ -87,10 +82,14 @@ export class SellerController {
       );
     }
 
-    // Store just the generated filename — frontend reconstructs the full URL
-    // via NEXT_PUBLIC_API_URL + /uploads/<filename>
-    const idFileUrl = idFileArr[0].filename!;
-    const businessLicenseUrl = licenseArr[0].filename!;
+    const idFile = idFileArr[0];
+    const licenseFile = licenseArr[0];
+
+    // Upload both files to Cloudinary in parallel — returns permanent secure_urls
+    const [idFileUrl, businessLicenseUrl] = await Promise.all([
+      uploadToCloudinary(idFile.buffer, KYC_FOLDER, idFile.mimetype),
+      uploadToCloudinary(licenseFile.buffer, KYC_FOLDER, licenseFile.mimetype),
+    ]);
 
     return this.kycService.submitKYC(
       req.user.id,

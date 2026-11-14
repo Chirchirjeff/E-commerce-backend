@@ -17,23 +17,13 @@ import {
   Query,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import { randomBytes } from 'crypto';
-import { existsSync, mkdirSync } from 'fs';
+import { memoryStorage } from 'multer';
 import { KycService } from './kyc.service';
+import { uploadToCloudinary } from '../lib/cloudinary';
 
-const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads');
-if (!existsSync(UPLOAD_DIR)) mkdirSync(UPLOAD_DIR, { recursive: true });
-
-const kycStorage = diskStorage({
-  destination: UPLOAD_DIR,
-  filename: (_req, file, cb) => {
-    const rnd = randomBytes(6).toString('hex');
-    const name = `${Date.now()}-${rnd}${extname(file.originalname)}`;
-    cb(null, name);
-  },
-});
+const KYC_FOLDER = process.env.CLOUDINARY_FOLDER
+  ? `${process.env.CLOUDINARY_FOLDER}/kyc`
+  : 'quza/kyc';
 import { CreateKycDto } from './dto/create-kyc.dto';
 import { UpdateKycDto } from './dto/update-kyc.dto';
 import { ReviewKycDto } from './dto/review-kyc.dto';
@@ -41,18 +31,6 @@ import { ReviewKycDto } from './dto/review-kyc.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'; // Your existing guard
 import { RolesGuard } from '../auth//guards/roles.guard'; // Your existing guard
 import { Roles } from '../auth/decorators/roles.decorator';
-
-// Define MulterFile type to avoid Express namespace issues
-interface MulterFile {
-  fieldname: string;
-  originalname: string;
-  encoding: string;
-  mimetype: string;
-  size: number;
-  filename: string;
-  path: string;
-  buffer?: Buffer;
-}
 
 @Controller('kyc')
 export class KycController {
@@ -63,11 +41,26 @@ export class KycController {
    */
   @Post('submit')
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FilesInterceptor('files', 2, { storage: kycStorage }))
+  @UseInterceptors(
+    FilesInterceptor('files', 2, {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB per file
+      fileFilter: (_req, file, cb) => {
+        const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+        if (!allowed.includes(file.mimetype)) {
+          return cb(
+            new BadRequestException('Only JPG, PNG, WebP or PDF files are accepted') as any,
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
   async submitKYC(
     @Req() req: any,
     @Body() createKycDto: CreateKycDto,
-    @UploadedFiles() files: MulterFile[],
+    @UploadedFiles() files: Express.Multer.File[],
   ) {
     const userId = req.user.id;
 
@@ -77,10 +70,11 @@ export class KycController {
       );
     }
 
-    // Store just the filename — the service layer and frontend reconstruct the
-    // full URL via NEXT_PUBLIC_API_URL + /uploads/<filename>
-    const idFileUrl = files[0].filename;
-    const businessLicenseUrl = files[1].filename;
+    // Upload both files to Cloudinary in parallel — returns permanent secure_urls
+    const [idFileUrl, businessLicenseUrl] = await Promise.all([
+      uploadToCloudinary(files[0].buffer, KYC_FOLDER, files[0].mimetype),
+      uploadToCloudinary(files[1].buffer, KYC_FOLDER, files[1].mimetype),
+    ]);
 
     return this.kycService.submitKYC(
       userId,

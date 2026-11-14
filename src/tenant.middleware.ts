@@ -49,6 +49,24 @@ export class TenantMiddleware implements NestMiddleware {
         return next();
       }
 
+      // Skip public auth routes — these are platform-level, not tenant-specific.
+      // Without this, any hostname that isn't localhost (e.g. seller.quzaurban.com)
+      // would cause the middleware to treat the subdomain as a shop slug, fail to
+      // find it, and block registration/login entirely.
+      const PUBLIC_AUTH_PREFIXES = [
+        '/auth/register',
+        '/auth/login',
+        '/auth/admin/login',
+        '/auth/buyer',
+        '/auth/refresh',
+        '/auth/forgot-password',
+        '/auth/reset-password',
+      ];
+      if (PUBLIC_AUTH_PREFIXES.some((prefix) => req.path.startsWith(prefix))) {
+        this.logger.debug(`Skipping tenant resolution for public auth path: ${req.path}`);
+        return next();
+      }
+
       const parts = hostname.split('.');
       
       if (parts.length <= 1) {

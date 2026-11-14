@@ -31,16 +31,21 @@ export class TenantMiddleware implements NestMiddleware {
         return next();
       }
 
-      // Skip for ngrok / tunnel domains — these are not tenant subdomains
+      // Skip for ngrok / tunnel domains and infrastructure hosting domains —
+      // these are not tenant subdomains.
       if (
         hostname.endsWith('.ngrok-free.app') ||
         hostname.endsWith('.ngrok-free.dev') ||
         hostname.endsWith('.ngrok.app') ||
         hostname.endsWith('.ngrok.io') ||
         hostname.endsWith('.loca.lt') ||
-        hostname.endsWith('.serveo.net')
+        hostname.endsWith('.serveo.net') ||
+        hostname.endsWith('.onrender.com') ||
+        hostname.endsWith('.vercel.app') ||
+        hostname.endsWith('.railway.app') ||
+        hostname.endsWith('.fly.dev')
       ) {
-        this.logger.debug(`Skipping tenant resolution for tunnel host: ${hostname}`);
+        this.logger.debug(`Skipping tenant resolution for infrastructure host: ${hostname}`);
         return next();
       }
 

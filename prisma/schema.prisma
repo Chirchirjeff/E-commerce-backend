@@ -236,12 +236,40 @@ model Product {
 }
 
 // ========================================
+// GPC TAXONOMY VERSION TRACKING
+// ========================================
+
+/// One row per GS1 GPC release imported into the platform.
+/// The `isCurrent` flag marks which release is authoritative for new products.
+/// Previous releases are retained so that products classified under older codes
+/// are never left with a dangling reference after a GPC update.
+model GpcTaxonomyVersion {
+  id           String   @id @default(uuid())
+  /// GS1 release date string, e.g. "20260520" (YYYYMMDD from the JSON DateUtc field)
+  releaseDate  String   @unique
+  /// Human-readable label, e.g. "GPC May 2026"
+  label        String
+  /// Whether this is the active/current release used for new classifications
+  isCurrent    Boolean  @default(false)
+  /// Total nodes imported at levels 1–4
+  nodeCount    Int      @default(0)
+  /// ISO timestamp of when this release was imported
+  importedAt   DateTime @default(now())
+
+  // Relations
+  categories MarketplaceCategory[]
+
+  @@index([isCurrent])
+  @@map("gpc_taxonomy_versions")
+}
+
+// ========================================
 // MARKETPLACE CATEGORY HIERARCHY
 // ========================================
 
 model MarketplaceCategory {
   id          String                @id @default(uuid())
-  name        String                @unique
+  name        String
   slug        String                @unique
   description String?
   parentId    String?
@@ -250,6 +278,18 @@ model MarketplaceCategory {
   level       Int                   @default(0) // 0 = root, 1 = level 1, etc.
   sortOrder   Int                   @default(0)
   isActive    Boolean               @default(true)
+
+  // ── GPC provenance ──────────────────────────────────────────────────────
+  /// Numeric GS1 GPC code (e.g. 10001674 for a brick). NULL for custom categories.
+  gpcCode         Int?
+  /// One of: SEGMENT | FAMILY | CLASS | BRICK | CUSTOM
+  gpcLevel        String   @default("CUSTOM")
+  /// true = imported from official GS1 GPC; false = created by seller or admin
+  isGpcStandard   Boolean  @default(false)
+  /// Links to the GpcTaxonomyVersion this node came from. NULL for custom categories.
+  gpcVersionId    String?
+  gpcVersion      GpcTaxonomyVersion? @relation(fields: [gpcVersionId], references: [id], onDelete: SetNull)
+
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
 
@@ -261,6 +301,9 @@ model MarketplaceCategory {
   @@index([slug])
   @@index([isActive])
   @@index([level])
+  @@index([gpcCode])
+  @@index([isGpcStandard])
+  @@index([gpcVersionId])
   @@map("marketplace_categories")
 }
 
@@ -715,6 +758,39 @@ model Payout {
   @@index([status])
   @@index([createdAt])
   @@map("payouts")
+}
+
+// ========================================
+// SYSTEM DOCUMENTATION
+// ========================================
+
+/// Admin-uploaded reference documents (PDF, Word, etc.) stored in Cloudinary.
+/// Used for storing GPC release notes, platform policies, API specs, etc.
+model SystemDoc {
+  id          String   @id @default(uuid())
+  /// Human-readable display name (can be edited after upload)
+  title       String
+  /// Original filename as uploaded
+  fileName    String
+  /// MIME type, e.g. "application/pdf"
+  mimeType    String
+  /// File size in bytes
+  fileSize    Int
+  /// Cloudinary secure_url
+  fileUrl     String
+  /// Optional category tag, e.g. "GPC Release Notes", "Policy", "API Spec"
+  category    String?
+  /// Optional free-text description
+  description String?
+  /// ID of the admin who uploaded this document
+  uploadedBy  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([uploadedBy])
+  @@index([createdAt])
+  @@map("system_docs")
 }
 
 // ========================================

@@ -23,10 +23,11 @@ import { SellerTagsModule } from './seller-tags/seller-tags.module';
 import { MpesaModule } from './mpesa/mpesa.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { ProfileChangesModule } from './profile-changes/profile-changes.module';
+import { GpcImportModule } from './gpc-import/gpc-import.module';
+import { SystemDocsModule } from './system-docs/system-docs.module';
 
 @Module({
   imports: [
-    // Register ConfigModule globally so ConfigService is available everywhere
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: join(__dirname, '..', '.env'),
@@ -47,11 +48,12 @@ import { ProfileChangesModule } from './profile-changes/profile-changes.module';
     MpesaModule,
     ReviewsModule,
     ProfileChangesModule,
+    GpcImportModule,
+    SystemDocsModule,
   ],
   controllers: [AppController, UploadsController],
   providers: [
     AppService,
-    // Make JwtAuthGuard global - applies to all routes
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
@@ -60,8 +62,6 @@ import { ProfileChangesModule } from './profile-changes/profile-changes.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(TenantMiddleware)
-      .forRoutes('*');
+    consumer.apply(TenantMiddleware).forRoutes('*');
   }
 }

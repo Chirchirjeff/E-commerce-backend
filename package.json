@@ -7,6 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "seed": "ts-node --transpile-only prisma/seed.ts",
+    "import:gpc": "ts-node --transpile-only prisma/seeds/import-gpc.ts",
     "seed:admins": "ts-node --transpile-only prisma/seeds/seed-admins-only.ts",
     "seed:users": "ts-node --transpile-only prisma/seeds/users.seed.ts",
     "seed:shops": "ts-node --transpile-only prisma/seeds/shops.seed.ts",

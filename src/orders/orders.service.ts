@@ -703,7 +703,7 @@ export class OrdersService {
     const where = this.buildSellerWhere(shopIds, query);
     const orders = await this.client.order.findMany({ where, include: this.sellerInclude(), orderBy: { createdAt: 'desc' } });
     const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-    const rows = orders.map((order) => [order.orderNumber, order.buyer.name, order.items.map((item) => item.product.name).join(' | '), order.total, order.paymentStatus, order.fulfillmentStatus, order.deliveryStatus, order.trackingNumber, order.createdAt.toISOString()].map(escape).join(','));
+    const rows = orders.map((order) => [order.orderNumber, order.buyer?.name ?? 'Guest', order.items.map((item) => item.product.name).join(' | '), order.total, order.paymentStatus, order.fulfillmentStatus, order.deliveryStatus, order.trackingNumber, order.createdAt.toISOString()].map(escape).join(','));
     return ['Order number,Buyer,Items,Total,Payment,Fulfillment,Delivery,Tracking number,Order date', ...rows].join('\n');
   }
 

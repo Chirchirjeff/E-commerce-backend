@@ -37,7 +37,7 @@ export class OrderPayloadDto {
 
   @IsEmail()
   @IsOptional()
-  customerEmail: string;
+  customerEmail?: string | null;
 
   @IsString()
   @IsNotEmpty()

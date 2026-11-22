@@ -633,8 +633,8 @@ model Order {
   // ─────────────────────────────────────────────────────────────────────────
   shopId      String
   shop        Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  buyerId     String
-  buyer       User        @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  buyerId     String?
+  buyer       User?       @relation(fields: [buyerId], references: [id], onDelete: SetNull)
   items       OrderItem[]
   // M-Pesa payment (one-to-one, optional)
   mpesaTransaction MpesaTransaction?

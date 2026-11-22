@@ -4,6 +4,7 @@ import {
   IsPositive,
   IsString,
   IsEmail,
+  IsOptional,
   IsArray,
   ValidateNested,
   Matches,
@@ -35,6 +36,7 @@ export class OrderPayloadDto {
   customerName: string;
 
   @IsEmail()
+  @IsOptional()
   customerEmail: string;
 
   @IsString()

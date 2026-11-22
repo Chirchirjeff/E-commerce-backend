@@ -7,7 +7,6 @@ import {
   HttpCode,
   HttpStatus,
   Logger,
-  Req,
 } from '@nestjs/common';
 import { MpesaService } from './mpesa.service';
 import { InitiateStkPushDto } from './dto/create-mpesa.dto';
@@ -22,28 +21,30 @@ export class MpesaController {
   /**
    * POST /mpesa/stk-push
    *
-   * Buyer authentication is required so every paid order belongs to a global account.
+   * Public endpoint — no account required.
    * Initiates an STK push to the buyer's phone. The order is created later
    * inside the callback once Safaricom confirms payment.
    *
    * Body: { phoneNumber, amount, orderPayload }
-   * Returns: { checkoutRequestId, merchantRequestId, responseDescription }
+   * Returns: { checkoutRequestId, merchantRequestId, responseDescription, orderNumber }
    */
   @Post('stk-push')
-  async initiateStkPush(@Body() dto: InitiateStkPushDto, @Req() req: any) {
-    return this.mpesaService.initiateStkPush(dto, req.user.id);
+  @SkipGuard()
+  async initiateStkPush(@Body() dto: InitiateStkPushDto) {
+    return this.mpesaService.initiateStkPush(dto);
   }
 
   /**
    * GET /mpesa/status/:checkoutRequestId
    *
-   * The authenticated buyer may poll their own checkout only.
+   * Public endpoint — anyone with the checkoutRequestId can poll status.
    * Returns: { status, orderId, resultDescription, mpesaReceiptNumber }
    *   status: PENDING | SUCCESS | FAILED | CANCELLED | TIMEOUT
    */
   @Get('status/:checkoutRequestId')
-  async getStatus(@Param('checkoutRequestId') checkoutRequestId: string, @Req() req: any) {
-    return this.mpesaService.getTransactionStatus(checkoutRequestId, req.user.id);
+  @SkipGuard()
+  async getStatus(@Param('checkoutRequestId') checkoutRequestId: string) {
+    return this.mpesaService.getTransactionStatus(checkoutRequestId);
   }
 
   /**

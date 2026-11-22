@@ -3,7 +3,6 @@ import {
   Logger,
   InternalServerErrorException,
   BadRequestException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
@@ -122,30 +121,16 @@ export class MpesaService {
 
   /**
    * Initiate a Lipa Na M-Pesa Online (STK Push) request.
+   * No authentication required — any buyer can pay with just their phone number.
    * Creates a pending MpesaTransaction record and returns the CheckoutRequestID
    * that the frontend uses to poll for status.
    */
-  async initiateStkPush(dto: InitiateStkPushDto, buyerId: string): Promise<{
+  async initiateStkPush(dto: InitiateStkPushDto): Promise<{
     checkoutRequestId: string;
     merchantRequestId: string;
     responseDescription: string;
     orderNumber: string;
   }> {
-    const buyer = await this.prisma.client.user.findUnique({
-      where: { id: buyerId },
-      select: { emailVerifiedAt: true },
-    });
-
-    if (!buyer) {
-      throw new ForbiddenException('Your buyer account was not found. Please sign in again.');
-    }
-
-    if (!buyer.emailVerifiedAt) {
-      throw new ForbiddenException(
-        'Verify your email address before making a payment. Please sign in again to receive a verification code.',
-      );
-    }
-
     const shortCode = this.config.get<string>('SHORT_CODE');
     const callbackUrl = this.config.get<string>('MPESA_CALLBACK_URL');
 
@@ -230,7 +215,7 @@ export class MpesaService {
         status: 'PENDING',
         orderNumber,
         // Store the full order payload so the callback can create the Order
-        callbackMetadata: { ...dto.orderPayload, buyerId } as any,
+        callbackMetadata: { ...dto.orderPayload } as any,
       },
     });
 
@@ -314,12 +299,10 @@ export class MpesaService {
 
       try {
         await this.prisma.client.$transaction(async (prisma) => {
-          // 1. The checkout was initiated by an authenticated global buyer.
-          const buyer = await prisma.user.findUnique({
-            where: { id: orderPayload.buyerId },
-            select: { id: true, email: true, name: true },
-          });
-          if (!buyer) throw new Error('Buyer account no longer exists');
+          // 1. Guest checkout — no buyer account required.
+          const contactPhone = orderPayload.customerPhone || transaction.phoneNumber;
+          const contactName  = orderPayload.customerName  || 'Guest';
+          const contactEmail = orderPayload.customerEmail || null;
 
           // 2. Create the order with the pre-reserved order number
           const order = await prisma.order.create({
@@ -327,20 +310,19 @@ export class MpesaService {
               orderNumber,
               trackingToken: crypto.randomBytes(24).toString('hex'),
               shopId: orderPayload.shopId,
-              buyerId: buyer.id,
               total: transaction.amount,
               status: 'paid',
               paymentStatus: 'PAID',
               fulfillmentStatus: 'NEW',
               deliveryStatus: 'NOT_DISPATCHED',
               escrowStatus: 'HELD',
-              deliveryName: orderPayload.customerName,
-              deliveryPhone: orderPayload.customerPhone,
-              deliveryEmail: orderPayload.customerEmail,
-              deliveryAddress: orderPayload.deliveryAddress,
-              deliveryCity: orderPayload.deliveryCity,
-              deliveryState: orderPayload.deliveryState,
-              deliveryZip: orderPayload.deliveryZip,
+              deliveryName: contactName,
+              deliveryPhone: contactPhone,
+              deliveryEmail: contactEmail,
+              deliveryAddress: orderPayload.deliveryAddress || 'To be confirmed',
+              deliveryCity: orderPayload.deliveryCity || 'Nairobi',
+              deliveryState: orderPayload.deliveryState || 'Nairobi',
+              deliveryZip: orderPayload.deliveryZip || '00100',
               items: {
                 create: orderPayload.items.map((item: any) => ({
                   productId: item.productId,
@@ -351,8 +333,8 @@ export class MpesaService {
               },
               events: {
                 create: [
-                  { type: 'ORDER_PLACED', message: 'Order placed by buyer', actorId: buyer.id },
-                  { type: 'PAYMENT_RECEIVED', message: 'M-Pesa payment received', actorId: buyer.id },
+                  { type: 'ORDER_PLACED', message: 'Order placed via M-Pesa' },
+                  { type: 'PAYMENT_RECEIVED', message: 'M-Pesa payment received' },
                 ],
               },
             },
@@ -379,14 +361,14 @@ export class MpesaService {
             },
           });
 
-          completedPayment.email = {
-            recipientEmail: buyer.email,
-            recipientName: buyer.name,
+          completedPayment.email = contactEmail ? {
+            recipientEmail: contactEmail,
+            recipientName: contactName,
             orderNumber,
             amount: transaction.amount,
             trackingToken: order.trackingToken,
             mpesaReceiptNumber,
-          };
+          } : undefined;
         });
 
         this.logger.log(
@@ -445,7 +427,7 @@ export class MpesaService {
    * Returns the current status of a transaction plus the orderId once created.
    * The frontend polls this until status is SUCCESS, FAILED, CANCELLED, or TIMEOUT.
    */
-  async getTransactionStatus(checkoutRequestId: string, buyerId: string): Promise<{
+  async getTransactionStatus(checkoutRequestId: string): Promise<{
     status: string;
     orderId: string | null;
     orderNumber: string | null;
@@ -463,7 +445,6 @@ export class MpesaService {
         mpesaReceiptNumber: true,
         createdAt: true,
         order: { select: { trackingToken: true } },
-        callbackMetadata: true,
       },
     });
 
@@ -471,9 +452,6 @@ export class MpesaService {
       throw new BadRequestException(
         `Transaction not found: ${checkoutRequestId}`,
       );
-    }
-    if ((transaction.callbackMetadata as any)?.buyerId !== buyerId) {
-      throw new ForbiddenException('You are not allowed to view this payment');
     }
 
     // Auto-timeout: if still PENDING after 5 minutes, mark it

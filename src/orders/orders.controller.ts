@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query, BadRequestException, Res } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, UseGuards, Query, BadRequestException, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { OrdersService } from './orders.service';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
@@ -6,6 +6,7 @@ import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { SkipGuard } from '../auth/decorators/skip-guard.decorator';
 import { PrismaService } from '../prisma.service';
+import { UpdateDeliveryDto } from './dto/update-order.dto';
 
 @Controller('orders')
 @UseGuards(PermissionsGuard)
@@ -143,5 +144,20 @@ export class OrdersController {
   @RequirePermissions('can_manage_orders')
   async remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.ordersService.remove(id, user.id);
+  }
+
+  /**
+   * PATCH /orders/:id/delivery
+   *
+   * Buyer-only: update delivery address details on a paid order.
+   * Used after the quick-pay flow to fill in tracking address.
+   */
+  @Patch(':id/delivery')
+  async updateDelivery(
+    @Param('id') id: string,
+    @Body() dto: UpdateDeliveryDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.ordersService.updateDeliveryForBuyer(id, dto, user.id);
   }
 }

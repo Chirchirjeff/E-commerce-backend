@@ -723,4 +723,39 @@ export class OrdersService {
     const updatedOrder = await this.client.order.update({ where: { id }, data: { ...body, fulfillmentStatus: 'DISPATCHED', deliveryStatus: 'IN_TRANSIT', dispatchedAt: new Date(), status: 'dispatched', events: { create: { type: 'ORDER_DISPATCHED', message: 'Seller dispatched order', actorId: userId } } }, include: this.sellerInclude() });
     return this.withoutBuyerContactDetails(updatedOrder);
   }
+
+  /**
+   * Let the buyer update delivery details on their own paid order.
+   * Only the buyer who owns the order may call this.
+   */
+  async updateDeliveryForBuyer(
+    id: string,
+    dto: {
+      deliveryAddress?: string;
+      deliveryCity?: string;
+      deliveryState?: string;
+      deliveryZip?: string;
+      deliveryName?: string;
+      deliveryPhone?: string;
+      deliveryEmail?: string;
+    },
+    buyerId: string,
+  ) {
+    const order = await this.client.order.findUnique({ where: { id } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.buyerId !== buyerId) throw new ForbiddenException('You are not authorised to update this order');
+
+    return this.client.order.update({
+      where: { id },
+      data: {
+        ...(dto.deliveryAddress && { deliveryAddress: dto.deliveryAddress }),
+        ...(dto.deliveryCity    && { deliveryCity:    dto.deliveryCity }),
+        ...(dto.deliveryState   && { deliveryState:   dto.deliveryState }),
+        ...(dto.deliveryZip     && { deliveryZip:     dto.deliveryZip }),
+        ...(dto.deliveryName    && { deliveryName:    dto.deliveryName }),
+        ...(dto.deliveryPhone   && { deliveryPhone:   dto.deliveryPhone }),
+        ...(dto.deliveryEmail   && { deliveryEmail:   dto.deliveryEmail }),
+      },
+    });
+  }
 }

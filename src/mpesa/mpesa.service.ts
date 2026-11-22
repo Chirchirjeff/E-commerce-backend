@@ -299,10 +299,22 @@ export class MpesaService {
 
       try {
         await this.prisma.client.$transaction(async (prisma) => {
-          // 1. Guest checkout — no buyer account required.
+          // 1. Resolve buyer identity — authenticated or guest.
           const contactPhone = orderPayload.customerPhone || transaction.phoneNumber;
           const contactName  = orderPayload.customerName  || 'Guest';
           const contactEmail = orderPayload.customerEmail || null;
+
+          // When the buyer was authenticated at the time of payment, associate
+          // the order with their account. Verify the user actually exists first
+          // so a tampered buyerId doesn't cause a foreign-key violation.
+          let resolvedBuyerId: string | null = null;
+          if (orderPayload.buyerId) {
+            const exists = await prisma.user.findUnique({
+              where: { id: orderPayload.buyerId },
+              select: { id: true },
+            });
+            resolvedBuyerId = exists?.id ?? null;
+          }
 
           // 2. Create the order with the pre-reserved order number
           const order = await prisma.order.create({
@@ -310,6 +322,8 @@ export class MpesaService {
               orderNumber,
               trackingToken: crypto.randomBytes(24).toString('hex'),
               shopId: orderPayload.shopId,
+              // Link to buyer account when authenticated; null for guest orders
+              ...(resolvedBuyerId ? { buyerId: resolvedBuyerId } : {}),
               total: transaction.amount,
               status: 'paid',
               paymentStatus: 'PAID',

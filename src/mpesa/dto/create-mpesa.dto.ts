@@ -71,6 +71,15 @@ export class OrderPayloadDto {
   @IsNumber()
   @IsPositive()
   total: number;
+
+  /**
+   * Optional: authenticated buyer's userId.
+   * When present, the Order is linked to their account so they can view
+   * order history and track without needing the tracking token.
+   */
+  @IsString()
+  @IsOptional()
+  buyerId?: string | null;
 }
 
 // ─── Top-level STK push request ───────────────────────────────────────────────

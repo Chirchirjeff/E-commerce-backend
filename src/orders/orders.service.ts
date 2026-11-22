@@ -269,37 +269,74 @@ export class OrdersService {
 
   /**
    * Public order lookup for the storefront confirmation page.
-   * No auth required. Flattens buyer + M-Pesa fields onto the response
-   * so the page can render customer name, email, phone, receipt number,
-   * and the human-readable order number.
+   * Supports two access modes:
+   *   1. Authenticated: buyerId must match order.buyerId (existing behaviour)
+   *   2. Guest: trackingToken must match (no auth required, used right after payment)
+   *
+   * The tracking token is unguessable (48 hex chars), so it acts as a bearer
+   * proof that the person viewing it received the payment confirmation.
    */
-  async findOnePublic(id: string, buyerId: string) {
-    const order = await this.client.order.findUnique({
-      where: { id, buyerId },
-      include: {
-        items: {
-          include: {
-            product: {
-              select: { id: true, name: true, thumbnailUrl: true },
+  async findOnePublic(id: string, buyerIdOrNull: string | null, trackingToken?: string) {
+    let order: any = null;
+
+    // Authenticated buyer — scope strictly to their account
+    if (buyerIdOrNull) {
+      order = await this.client.order.findUnique({
+        where: { id, buyerId: buyerIdOrNull },
+        include: {
+          items: {
+            include: {
+              product: {
+                select: { id: true, name: true, thumbnailUrl: true },
+              },
+            },
+          },
+          shop: { select: BUYER_SHOP_SELECT },
+          buyer: {
+            select: { id: true, name: true, email: true, phone: true },
+          },
+          mpesaTransaction: {
+            select: {
+              mpesaReceiptNumber: true,
+              phoneNumber: true,
+              status: true,
             },
           },
         },
-        shop: { select: BUYER_SHOP_SELECT },
-        buyer: {
-          select: { id: true, name: true, email: true, phone: true },
-        },
-        mpesaTransaction: {
-          select: {
-            mpesaReceiptNumber: true,
-            phoneNumber: true,
-            status: true,
+      });
+    }
+
+    // Guest fallback — use trackingToken as proof of payment
+    if (!order && trackingToken) {
+      const candidate = await this.client.order.findUnique({
+        where: { trackingToken },
+        include: {
+          items: {
+            include: {
+              product: {
+                select: { id: true, name: true, thumbnailUrl: true },
+              },
+            },
+          },
+          shop: { select: BUYER_SHOP_SELECT },
+          buyer: {
+            select: { id: true, name: true, email: true, phone: true },
+          },
+          mpesaTransaction: {
+            select: {
+              mpesaReceiptNumber: true,
+              phoneNumber: true,
+              status: true,
+            },
           },
         },
-      },
-    });
+      });
+      // Only return if the order id matches — prevents token-fishing
+      if (candidate?.id === id) order = candidate;
+    }
 
     if (!order) {
-      throw new NotFoundException(`Order ${id} was not found in your account`);
+      throw new NotFoundException(`Order ${id} was not found`);
     }
 
     // Prefer delivery fields stored on the order at checkout time.
@@ -323,6 +360,50 @@ export class OrdersService {
       estimatedDelivery: order.estimatedDelivery ?? null,
       dispatchedAt:      order.dispatchedAt      ?? null,
       trackingToken:     order.trackingToken,
+    };
+  }
+
+  /**
+   * Public order lookup by tracking token alone — no auth required.
+   * Used by the guest order confirmation page and /track/[token] route.
+   */
+  async findByTrackingTokenPublic(trackingToken: string) {
+    const order = await this.client.order.findUnique({
+      where: { trackingToken },
+      include: {
+        items: {
+          include: {
+            product: { select: { id: true, name: true, thumbnailUrl: true } },
+          },
+        },
+        shop: { select: BUYER_SHOP_SELECT },
+        buyer: { select: { id: true, name: true, email: true, phone: true } },
+        mpesaTransaction: {
+          select: { mpesaReceiptNumber: true, phoneNumber: true, status: true },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    return {
+      ...order,
+      ...withShopToken(order.shop),
+      customerName:    order.deliveryName    ?? order.buyer?.name    ?? '',
+      customerEmail:   order.deliveryEmail   ?? order.buyer?.email   ?? '',
+      customerPhone:   order.deliveryPhone   ?? order.buyer?.phone
+                         ?? order.mpesaTransaction?.phoneNumber      ?? '',
+      deliveryAddress: order.deliveryAddress ?? '',
+      deliveryCity:    order.deliveryCity    ?? '',
+      deliveryState:   order.deliveryState   ?? '',
+      deliveryZip:     order.deliveryZip     ?? '',
+      mpesaReceiptNumber: order.mpesaTransaction?.mpesaReceiptNumber ?? null,
+      trackingNumber:    order.trackingNumber    ?? null,
+      shippingCarrier:   order.shippingCarrier   ?? null,
+      estimatedDelivery: order.estimatedDelivery ?? null,
+      dispatchedAt:      order.dispatchedAt      ?? null,
     };
   }
 
@@ -739,11 +820,20 @@ export class OrdersService {
       deliveryPhone?: string;
       deliveryEmail?: string;
     },
-    buyerId: string,
+    buyerId: string | null,
+    guestTrackingToken?: string,
   ) {
     const order = await this.client.order.findUnique({ where: { id } });
     if (!order) throw new NotFoundException('Order not found');
-    if (order.buyerId !== buyerId) throw new ForbiddenException('You are not authorised to update this order');
+
+    // Access check: authenticated buyer must own the order, OR a guest provides
+    // the unguessable tracking token that was returned in the payment confirmation.
+    const isAuthOwner  = buyerId && order.buyerId === buyerId;
+    const isGuestProof = !order.buyerId && guestTrackingToken && order.trackingToken === guestTrackingToken;
+
+    if (!isAuthOwner && !isGuestProof) {
+      throw new ForbiddenException('You are not authorised to update this order');
+    }
 
     return this.client.order.update({
       where: { id },

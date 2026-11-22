@@ -16,7 +16,7 @@ import { InitiateStkPushDto } from './dto/create-mpesa.dto';
 export class MpesaService {
   private readonly logger = new Logger(MpesaService.name);
 
-  // Safaricom sandbox base URL
+  // Safaricom sandbox base URL (switch to https://api.safaricom.co.ke when going live)
   private readonly baseUrl = 'https://sandbox.safaricom.co.ke';
 
   constructor(

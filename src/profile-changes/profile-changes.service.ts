@@ -333,7 +333,9 @@ export class ProfileChangesService {
       reviewNote: note?.trim() || null,
     });
 
-    await this.notify(user.email, user.name, `Your ${definition.label.toLowerCase()} change was approved`, [
+    // Fire-and-forget — transaction already committed via apply(), so email
+    // failure must never block the response or undo the approved change.
+    void this.notify(user.email, user.name, `Your ${definition.label.toLowerCase()} change was approved`, [
       `Your request to change your ${definition.label.toLowerCase()} to <strong>${this.escape(request.newValue)}</strong> was approved (reference <strong>${request.reference}</strong>).`,
       ...(note?.trim() ? [`Note from the Quza team: ${this.escape(note.trim())}`] : []),
     ]);
@@ -352,7 +354,8 @@ export class ProfileChangesService {
       where: { id: request.id },
       data: { status: 'REJECTED', reviewedBy: adminId, reviewNote: note.trim(), reviewedAt: new Date() },
     });
-    await this.notify(user.email, user.name, `Your ${definition.label.toLowerCase()} change was not approved`, [
+    // Fire-and-forget — DB update already committed above.
+    void this.notify(user.email, user.name, `Your ${definition.label.toLowerCase()} change was not approved`, [
       `We couldn't approve your request to change your ${definition.label.toLowerCase()} (reference <strong>${request.reference}</strong>).`,
       `<strong>Reason:</strong> ${this.escape(note.trim())}`,
       'You can submit a new request from Settings → Account once you have the right information or documents.',

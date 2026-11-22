@@ -25,6 +25,7 @@ import { ReviewsModule } from './reviews/reviews.module';
 import { ProfileChangesModule } from './profile-changes/profile-changes.module';
 import { GpcImportModule } from './gpc-import/gpc-import.module';
 import { SystemDocsModule } from './system-docs/system-docs.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { SystemDocsModule } from './system-docs/system-docs.module';
     ProfileChangesModule,
     GpcImportModule,
     SystemDocsModule,
+    NotificationsModule,
   ],
   controllers: [AppController, UploadsController],
   providers: [

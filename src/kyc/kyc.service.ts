@@ -273,7 +273,9 @@ export class KycService {
       return updatedKYC;
     });
 
-    await this.emailService.sendKycStatusEmail({
+    // Fire-and-forget — transaction already committed, so email failure must
+    // never block the response or roll back the verified status.
+    void this.emailService.sendKycStatusEmail({
       recipientEmail: kyc.user.email,
       recipientName: kyc.user.name,
       businessName: kyc.businessName,
@@ -325,7 +327,8 @@ export class KycService {
       return updatedKYC;
     });
 
-    await this.emailService.sendKycStatusEmail({
+    // Fire-and-forget — same reasoning as approveKYC above.
+    void this.emailService.sendKycStatusEmail({
       recipientEmail: kyc.user.email,
       recipientName: kyc.user.name,
       businessName: kyc.businessName,

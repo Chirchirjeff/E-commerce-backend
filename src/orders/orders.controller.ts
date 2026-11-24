@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Patch, Delete,
-  Body, Param, UseGuards, Query, Res,
+  Body, Param, UseGuards, Query, Res, HttpCode, HttpStatus,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { OrdersService } from './orders.service';
@@ -129,6 +129,41 @@ export class OrdersController {
   @SkipGuard()
   async findByTokenPublic(@Param('trackingToken') trackingToken: string) {
     return this.ordersService.findByTrackingTokenPublic(trackingToken);
+  }
+
+  /**
+   * POST /orders/public/lookup { orderNumber, phone }
+   * Track an order with the order number and the phone used at checkout.
+   * Returns { orderId, trackingToken }.
+   */
+  @Post('public/lookup')
+  @SkipGuard()
+  @HttpCode(HttpStatus.OK)
+  async lookup(@Body() body: { orderNumber: string; phone: string }) {
+    return this.ordersService.lookupForGuest(body?.orderNumber, body?.phone);
+  }
+
+  /** POST /orders/:id/received { trackingToken? } — buyer confirms delivery. */
+  @Post(':id/received')
+  @OptionalAuth()
+  @HttpCode(HttpStatus.OK)
+  async confirmReceived(
+    @Param('id') id: string,
+    @Body() body: { trackingToken?: string },
+    @CurrentUser() user: any,
+  ) {
+    return this.ordersService.confirmReceivedByBuyer(id, user?.id ?? null, body?.trackingToken);
+  }
+
+  /** POST /orders/:id/return { reason, trackingToken? } — buyer requests a return. */
+  @Post(':id/return')
+  @OptionalAuth()
+  async requestReturn(
+    @Param('id') id: string,
+    @Body() body: { reason: string; trackingToken?: string },
+    @CurrentUser() user: any,
+  ) {
+    return this.ordersService.requestReturnByBuyer(id, body?.reason, user?.id ?? null, body?.trackingToken);
   }
 
   /**

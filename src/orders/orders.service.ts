@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -12,6 +18,10 @@ import { UpdateOrderDto } from './dto/update-order.dto';
 const BUYER_SHOP_SELECT = {
   id: true,
   name: true,
+  businessLogo: true,
+  // Already public on /shops; lets buyers call or email the seller about an order.
+  contactPhone: true,
+  contactEmail: true,
   shopLinks: {
     where: { isActive: true },
     orderBy: { createdAt: 'desc' as const },
@@ -20,9 +30,47 @@ const BUYER_SHOP_SELECT = {
   },
 };
 
-function withShopToken(shop: { id: string; name: string; shopLinks: { token: string }[] } | null) {
+/**
+ * Order history and return requests shown on the buyer's order tracking
+ * timeline. Actor ids stay private.
+ */
+const BUYER_TIMELINE_INCLUDE = {
+  events: {
+    orderBy: { createdAt: 'asc' as const },
+    select: { type: true, message: true, createdAt: true },
+  },
+  returnRequests: {
+    orderBy: { requestedAt: 'desc' as const },
+    select: { id: true, reason: true, status: true, requestedAt: true },
+  },
+};
+
+/** Days after delivery during which a buyer can ask for a return. */
+const RETURN_WINDOW_DAYS = 7;
+
+const normalizePhone = (value: string) =>
+  String(value ?? '').replace(/\s+/g, '').replace(/^\+?254/, '0');
+
+function withShopToken(
+  shop: {
+    id: string;
+    name: string;
+    businessLogo?: string | null;
+    contactPhone?: string | null;
+    contactEmail?: string | null;
+    shopLinks: { token: string }[];
+  } | null,
+) {
   return {
-    shop: shop ? { id: shop.id, name: shop.name } : null,
+    shop: shop
+      ? {
+          id: shop.id,
+          name: shop.name,
+          businessLogo: shop.businessLogo ?? null,
+          contactPhone: shop.contactPhone ?? null,
+          contactEmail: shop.contactEmail ?? null,
+        }
+      : null,
     shopToken: shop?.shopLinks[0]?.token ?? null,
   };
 }
@@ -302,6 +350,7 @@ export class OrdersService {
             },
           },
           shop: { select: BUYER_SHOP_SELECT },
+        ...BUYER_TIMELINE_INCLUDE,
           buyer: {
             select: { id: true, name: true, username: true, avatarUrl: true, email: true, phone: true },
           },
@@ -329,6 +378,7 @@ export class OrdersService {
             },
           },
           shop: { select: BUYER_SHOP_SELECT },
+        ...BUYER_TIMELINE_INCLUDE,
           buyer: {
             select: { id: true, name: true, username: true, avatarUrl: true, email: true, phone: true },
           },
@@ -387,6 +437,7 @@ export class OrdersService {
           },
         },
         shop: { select: BUYER_SHOP_SELECT },
+        ...BUYER_TIMELINE_INCLUDE,
         buyer: { select: { id: true, name: true, username: true, avatarUrl: true, email: true, phone: true } },
         mpesaTransaction: {
           select: { mpesaReceiptNumber: true, phoneNumber: true, status: true },
@@ -435,6 +486,7 @@ export class OrdersService {
           },
         },
         shop: { select: BUYER_SHOP_SELECT },
+        ...BUYER_TIMELINE_INCLUDE,
         buyer: { select: { id: true, name: true, username: true, avatarUrl: true, email: true, phone: true } },
         mpesaTransaction: {
           select: { mpesaReceiptNumber: true, phoneNumber: true, status: true },
@@ -474,6 +526,7 @@ export class OrdersService {
       include: {
         items: { include: { product: { select: { id: true, name: true, thumbnailUrl: true } } } },
         shop: { select: BUYER_SHOP_SELECT },
+        ...BUYER_TIMELINE_INCLUDE,
         mpesaTransaction: { select: { mpesaReceiptNumber: true } },
       },
     });
@@ -499,6 +552,7 @@ export class OrdersService {
       include: {
         items: { include: { product: { select: { id: true, name: true, thumbnailUrl: true } } } },
         shop: { select: BUYER_SHOP_SELECT },
+        ...BUYER_TIMELINE_INCLUDE,
         mpesaTransaction: { select: { mpesaReceiptNumber: true, phoneNumber: true, status: true } },
       },
     });
@@ -865,5 +919,122 @@ export class OrdersService {
         ...(dto.deliveryEmail   && { deliveryEmail:   dto.deliveryEmail }),
       },
     });
+  }
+
+  // ── Buyer actions on their own order ─────────────────────────────────────
+  // Same access rule as updateDeliveryForBuyer: the signed-in owner, or a
+  // guest holding the order's unguessable tracking token.
+
+  private async orderForBuyerAction(id: string, buyerId: string | null, trackingToken?: string) {
+    const order = await this.client.order.findUnique({
+      where: { id },
+      include: { events: { select: { type: true, createdAt: true } } },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    const isOwner = !!buyerId && order.buyerId === buyerId;
+    const hasToken = !!trackingToken && order.trackingToken === trackingToken;
+    if (!isOwner && !hasToken) {
+      throw new ForbiddenException('You are not authorised to update this order');
+    }
+    return order;
+  }
+
+  /** Buyer confirms the parcel arrived (only once the seller has dispatched it). */
+  async confirmReceivedByBuyer(id: string, buyerId: string | null, trackingToken?: string) {
+    const order = await this.orderForBuyerAction(id, buyerId, trackingToken);
+    if (order.fulfillmentStatus === 'COMPLETED' || order.deliveryStatus === 'DELIVERED') {
+      return { ok: true, alreadyConfirmed: true };
+    }
+    if (order.fulfillmentStatus !== 'DISPATCHED') {
+      throw new BadRequestException('You can confirm delivery once the seller has dispatched your order.');
+    }
+    await this.client.order.update({
+      where: { id },
+      data: {
+        fulfillmentStatus: 'COMPLETED',
+        deliveryStatus: 'DELIVERED',
+        status: 'completed',
+        events: {
+          create: {
+            type: 'BUYER_CONFIRMED_DELIVERY',
+            message: 'Buyer confirmed the order was received',
+            actorId: buyerId,
+          },
+        },
+      },
+    });
+    return { ok: true, alreadyConfirmed: false };
+  }
+
+  /** Buyer asks for a return within RETURN_WINDOW_DAYS of delivery. */
+  async requestReturnByBuyer(
+    id: string,
+    reason: string,
+    buyerId: string | null,
+    trackingToken?: string,
+  ) {
+    const text = String(reason ?? '').trim();
+    if (text.length < 10) {
+      throw new BadRequestException('Tell the seller what is wrong (at least 10 characters).');
+    }
+    if (text.length > 1000) throw new BadRequestException('Please keep the reason under 1000 characters.');
+    const order = await this.orderForBuyerAction(id, buyerId, trackingToken);
+    const delivered = order.fulfillmentStatus === 'COMPLETED' || order.deliveryStatus === 'DELIVERED';
+    if (!delivered) {
+      throw new BadRequestException('You can request a return after your order has been delivered.');
+    }
+    const deliveredAt =
+      order.events
+        .filter((e) => e.type === 'BUYER_CONFIRMED_DELIVERY' || e.type === 'FULFILLMENT_COMPLETED')
+        .map((e) => e.createdAt)
+        .sort((a, b) => b.getTime() - a.getTime())[0] ?? order.updatedAt;
+    if (Date.now() - deliveredAt.getTime() > RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
+      throw new BadRequestException(`Returns can be requested within ${RETURN_WINDOW_DAYS} days of delivery.`);
+    }
+    const open = await this.client.returnRequest.findFirst({
+      where: { orderId: id, status: 'RETURN_REQUESTED' },
+      select: { id: true },
+    });
+    if (open) throw new ConflictException('You have already requested a return for this order.');
+    const request = await this.client.returnRequest.create({
+      data: { orderId: id, reason: text },
+    });
+    await this.client.orderEvent.create({
+      data: {
+        orderId: id,
+        type: 'RETURN_REQUESTED',
+        message: 'Buyer requested a return',
+        actorId: buyerId,
+      },
+    });
+    return { id: request.id, status: request.status, requestedAt: request.requestedAt };
+  }
+
+  /**
+   * Track an order without the app's saved link: the order number plus the
+   * phone number used at checkout. Order numbers are sequential, so the phone
+   * is the proof; the reply never says which of the two was wrong.
+   */
+  async lookupForGuest(orderNumberRaw: string, phoneRaw: string) {
+    const orderNumber = String(orderNumberRaw ?? '').trim().toUpperCase();
+    const phone = normalizePhone(phoneRaw);
+    const notFound = new NotFoundException('We couldn’t find an order with that number and phone.');
+    if (!/^QZ\d{4,}$/.test(orderNumber) || !/^0[17]\d{8}$/.test(phone)) throw notFound;
+    const order = await this.client.order.findUnique({
+      where: { orderNumber },
+      select: {
+        id: true,
+        trackingToken: true,
+        deliveryPhone: true,
+        buyer: { select: { phone: true } },
+        mpesaTransaction: { select: { phoneNumber: true } },
+      },
+    });
+    if (!order) throw notFound;
+    const phones = [order.deliveryPhone, order.buyer?.phone, order.mpesaTransaction?.phoneNumber]
+      .filter(Boolean)
+      .map((p) => normalizePhone(p as string));
+    if (!phones.includes(phone)) throw notFound;
+    return { orderId: order.id, trackingToken: order.trackingToken };
   }
 }

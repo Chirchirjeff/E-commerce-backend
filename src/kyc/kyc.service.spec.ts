@@ -15,6 +15,7 @@ describe('KycService', () => {
   const prisma = {
     client: {
       kYC: { findUnique: jest.fn() },
+      emailFailure: { create: jest.fn() },
       $transaction: jest.fn(),
     },
   };
@@ -22,6 +23,7 @@ describe('KycService', () => {
   beforeEach(async () => {
     jest.resetAllMocks();
     prisma.client.$transaction.mockImplementation((callback) => callback(transactionClient));
+    emailService.sendKycStatusEmail.mockResolvedValue({ sent: true });
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         KycService,
@@ -77,5 +79,46 @@ describe('KycService', () => {
       outcome: 'rejected',
       reason: 'Please upload a readable business licence.',
     });
+  });
+
+  it('records a failed decision email for the admin instead of failing silently', async () => {
+    const kyc = {
+      id: 'kyc-1', userId: 'seller-1', status: 'PENDING', businessName: 'Acme Shop',
+      user: { email: 'seller@example.com', name: 'Amina' },
+    };
+    prisma.client.kYC.findUnique.mockResolvedValue(kyc);
+    transactionClient.kYC.update.mockResolvedValue({ ...kyc, status: 'REJECTED' });
+    transactionClient.kYCReview.create.mockResolvedValue({});
+    emailService.sendKycStatusEmail.mockResolvedValue({ sent: false, error: 'Invalid login' });
+
+    const result = await service.rejectKYC('kyc-1', 'admin-1', 'Blurry ID.');
+
+    expect(result.status).toBe('REJECTED');
+    expect(result.emailSent).toBe(false);
+    expect(prisma.client.emailFailure.create).toHaveBeenCalledWith({
+      data: {
+        kind: 'KYC_DECISION',
+        kycId: 'kyc-1',
+        outcome: 'rejected',
+        recipientEmail: 'seller@example.com',
+        recipientName: 'Amina',
+        error: 'Invalid login',
+      },
+    });
+  });
+
+  it('reports emailSent: true and records nothing when the email is delivered', async () => {
+    const kyc = {
+      id: 'kyc-1', userId: 'seller-1', status: 'PENDING', businessName: 'Acme Shop',
+      user: { email: 'seller@example.com', name: 'Amina' },
+    };
+    prisma.client.kYC.findUnique.mockResolvedValue(kyc);
+    transactionClient.kYC.update.mockResolvedValue({ ...kyc, status: 'REJECTED' });
+    transactionClient.kYCReview.create.mockResolvedValue({});
+
+    const result = await service.rejectKYC('kyc-1', 'admin-1', 'Blurry ID.');
+
+    expect(result.emailSent).toBe(true);
+    expect(prisma.client.emailFailure.create).not.toHaveBeenCalled();
   });
 });

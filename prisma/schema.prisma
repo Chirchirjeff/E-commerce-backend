@@ -925,6 +925,36 @@ model ProfileChangeRequest {
 }
 
 // ========================================
+// EMAIL DELIVERY FAILURES
+// ========================================
+
+/// A seller email that could not be delivered. Unresolved rows surface in the
+/// admin notification bell so a failed send is never silent; an admin can
+/// retry or dismiss them.
+model EmailFailure {
+  id             String    @id @default(uuid())
+  /// KYC_DECISION (approval / rejection email to a seller)
+  kind           String
+  kycId          String?
+  /// approved | rejected
+  outcome        String?
+  recipientEmail String
+  recipientName  String?
+  error          String
+  attempts       Int       @default(1)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now()) @updatedAt
+  resolvedAt     DateTime?
+  resolvedBy     String?   // Admin ID
+  /// RESENT | DISMISSED
+  resolution     String?
+
+  @@index([resolvedAt, createdAt])
+  @@index([kycId])
+  @@map("email_failures")
+}
+
+// ========================================
 // MPESA TRANSACTION MODEL
 // ========================================
 

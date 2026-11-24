@@ -60,6 +60,11 @@ interface SellerNoticeEmail {
   paragraphs: string[];
 }
 
+export interface EmailSendResult {
+  sent: boolean;
+  error?: string;
+}
+
 interface RenderedEmail {
   to: string[];
   subject: string;
@@ -103,6 +108,10 @@ export class EmailService {
       port,
       secure: port === 465,
       auth: { user, pass },
+      // Fail fast: callers wait on the result to tell the admin what happened.
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 30_000,
     });
     return this.transporter;
   }
@@ -130,7 +139,12 @@ export class EmailService {
     }
   }
 
-  async sendKycStatusEmail(email: KycStatusEmail): Promise<void> {
+  /**
+   * Sends the approval / rejection email. Never throws — the KYC decision is
+   * already committed — but reports whether delivery succeeded so the caller
+   * can alert an admin instead of failing silently.
+   */
+  async sendKycStatusEmail(email: KycStatusEmail): Promise<EmailSendResult> {
     const recipientName = escapeHtml(email.recipientName);
     const businessName = escapeHtml(email.businessName);
     const isApproved = email.outcome === 'approved';
@@ -155,7 +169,9 @@ export class EmailService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`KYC ${email.outcome} email failed: ${message}`);
+      return { sent: false, error: message };
     }
+    return { sent: true };
   }
 
   async sendBuyerCodeEmail(email: BuyerCodeEmail): Promise<void> {

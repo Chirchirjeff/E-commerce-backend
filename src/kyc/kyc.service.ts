@@ -1,6 +1,7 @@
 // src/kyc/kyc.service.ts
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ConflictException,
   BadRequestException,
@@ -15,6 +16,8 @@ import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class KycService {
+  private readonly logger = new Logger(KycService.name);
+
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
@@ -273,16 +276,11 @@ export class KycService {
       return updatedKYC;
     });
 
-    // Fire-and-forget — transaction already committed, so email failure must
-    // never block the response or roll back the verified status.
-    void this.emailService.sendKycStatusEmail({
-      recipientEmail: kyc.user.email,
-      recipientName: kyc.user.name,
-      businessName: kyc.businessName,
-      outcome: 'approved',
-    });
+    // The transaction is already committed, so an email failure never rolls
+    // back the verified status — but it is recorded and reported to the admin.
+    const emailSent = await this.sendDecisionEmail(kyc, 'approved');
 
-    return updatedKYC;
+    return { ...updatedKYC, emailSent };
   }
 
   /**
@@ -327,16 +325,58 @@ export class KycService {
       return updatedKYC;
     });
 
-    // Fire-and-forget — same reasoning as approveKYC above.
-    void this.emailService.sendKycStatusEmail({
-      recipientEmail: kyc.user.email,
-      recipientName: kyc.user.name,
-      businessName: kyc.businessName,
-      outcome: 'rejected',
-      reason,
-    });
+    // Same reasoning as approveKYC above.
+    const emailSent = await this.sendDecisionEmail(kyc, 'rejected', reason);
 
-    return updatedKYC;
+    return { ...updatedKYC, emailSent };
+  }
+
+  /**
+   * Emails the seller their KYC decision. Returns whether it was delivered.
+   * A failed send is stored as an EmailFailure so it shows in the admin
+   * notification bell (with retry) instead of only in the server log.
+   */
+  private async sendDecisionEmail(
+    kyc: {
+      id: string;
+      businessName: string;
+      user: { email: string; name: string };
+    },
+    outcome: 'approved' | 'rejected',
+    reason?: string,
+  ): Promise<boolean> {
+    let error = 'Unknown email error';
+    try {
+      const result = await this.emailService.sendKycStatusEmail({
+        recipientEmail: kyc.user.email,
+        recipientName: kyc.user.name,
+        businessName: kyc.businessName,
+        outcome,
+        ...(outcome === 'rejected' ? { reason } : {}),
+      });
+      if (result?.sent) return true;
+      error = result?.error ?? error;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+
+    try {
+      await this.prisma.client.emailFailure.create({
+        data: {
+          kind: 'KYC_DECISION',
+          kycId: kyc.id,
+          outcome,
+          recipientEmail: kyc.user.email,
+          recipientName: kyc.user.name,
+          error: error.slice(0, 500),
+        },
+      });
+    } catch (e) {
+      this.logger.error(
+        `Could not record failed KYC ${outcome} email for ${kyc.id}: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+    return false;
   }
 
   /**

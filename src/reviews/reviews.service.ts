@@ -70,7 +70,7 @@ export class ReviewsService {
         comment: true,
         status: true,
         createdAt: true,
-        user: { select: { id: true, name: true } },
+        user: { select: { id: true, name: true, username: true, avatarUrl: true } },
       },
     });
   }
@@ -89,7 +89,7 @@ export class ReviewsService {
           rating: true,
           comment: true,
           createdAt: true,
-          user: { select: { id: true, name: true } },
+          user: { select: { id: true, name: true, username: true, avatarUrl: true } },
         },
       }),
       this.prisma.client.review.aggregate({

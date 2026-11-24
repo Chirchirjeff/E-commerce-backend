@@ -101,6 +101,8 @@ export class OrdersService {
             select: {
               id: true,
               name: true,
+              username: true,
+              avatarUrl: true,
               email: true,
             },
           },
@@ -148,6 +150,8 @@ export class OrdersService {
           select: {
             id: true,
             name: true,
+            username: true,
+            avatarUrl: true,
             email: true,
           },
         },
@@ -181,6 +185,8 @@ export class OrdersService {
           select: {
             id: true,
             name: true,
+            username: true,
+            avatarUrl: true,
             email: true,
           },
         },
@@ -224,6 +230,8 @@ export class OrdersService {
           select: {
             id: true,
             name: true,
+            username: true,
+            avatarUrl: true,
             email: true,
           },
         },
@@ -254,6 +262,8 @@ export class OrdersService {
           select: {
             id: true,
             name: true,
+            username: true,
+            avatarUrl: true,
             email: true,
           },
         },
@@ -293,7 +303,7 @@ export class OrdersService {
           },
           shop: { select: BUYER_SHOP_SELECT },
           buyer: {
-            select: { id: true, name: true, email: true, phone: true },
+            select: { id: true, name: true, username: true, avatarUrl: true, email: true, phone: true },
           },
           mpesaTransaction: {
             select: {
@@ -320,7 +330,7 @@ export class OrdersService {
           },
           shop: { select: BUYER_SHOP_SELECT },
           buyer: {
-            select: { id: true, name: true, email: true, phone: true },
+            select: { id: true, name: true, username: true, avatarUrl: true, email: true, phone: true },
           },
           mpesaTransaction: {
             select: {
@@ -377,7 +387,7 @@ export class OrdersService {
           },
         },
         shop: { select: BUYER_SHOP_SELECT },
-        buyer: { select: { id: true, name: true, email: true, phone: true } },
+        buyer: { select: { id: true, name: true, username: true, avatarUrl: true, email: true, phone: true } },
         mpesaTransaction: {
           select: { mpesaReceiptNumber: true, phoneNumber: true, status: true },
         },
@@ -425,7 +435,7 @@ export class OrdersService {
           },
         },
         shop: { select: BUYER_SHOP_SELECT },
-        buyer: { select: { id: true, name: true, email: true, phone: true } },
+        buyer: { select: { id: true, name: true, username: true, avatarUrl: true, email: true, phone: true } },
         mpesaTransaction: {
           select: { mpesaReceiptNumber: true, phoneNumber: true, status: true },
         },
@@ -542,6 +552,8 @@ export class OrdersService {
           select: {
             id: true,
             name: true,
+            username: true,
+            avatarUrl: true,
             email: true,
           },
         },
@@ -577,6 +589,8 @@ export class OrdersService {
           select: {
             id: true,
             name: true,
+            username: true,
+            avatarUrl: true,
             email: true,
           },
         },
@@ -633,6 +647,8 @@ export class OrdersService {
           select: {
             id: true,
             name: true,
+            username: true,
+            avatarUrl: true,
           },
         },
       },
@@ -662,6 +678,8 @@ export class OrdersService {
           select: {
             id: true,
             name: true,
+            username: true,
+            avatarUrl: true,
           },
         },
       },
@@ -704,7 +722,7 @@ export class OrdersService {
       shop: { select: { id: true, name: true, ownerId: true } },
       // Sellers only need the buyer's name to fulfil an order. Contact details
       // remain available through the admin order endpoints.
-      buyer: { select: { id: true, name: true } },
+      buyer: { select: { id: true, name: true, username: true, avatarUrl: true } },
       mpesaTransaction: { select: { status: true, mpesaReceiptNumber: true, createdAt: true } },
       events: { orderBy: { createdAt: 'asc' as const } },
       returnRequests: { orderBy: { requestedAt: 'desc' as const } },

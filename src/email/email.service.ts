@@ -13,7 +13,19 @@ interface BuyerCodeEmail {
   recipientEmail: string;
   recipientName: string;
   code: string;
-  purpose: 'verify-email' | 'login';
+  purpose: 'verify-email' | 'login' | 'change-email';
+}
+
+interface PasswordResetCodeEmail {
+  recipientEmail: string;
+  recipientName: string;
+  code: string;
+}
+
+interface EmailChangedNotice {
+  recipientEmail: string;
+  recipientName: string;
+  newEmail: string;
 }
 
 interface BuyerPasswordResetEmail {
@@ -149,11 +161,22 @@ export class EmailService {
   async sendBuyerCodeEmail(email: BuyerCodeEmail): Promise<void> {
     const name = escapeHtml(email.recipientName);
     const isLogin = email.purpose === 'login';
-    const subject = isLogin ? 'Your Quza sign-in code' : 'Verify your Quza email address';
-    const heading = isLogin ? 'Sign in to Quza' : 'Verify your email address';
+    const isChange = email.purpose === 'change-email';
+    const subject = isLogin
+      ? 'Your Quza sign-in code'
+      : isChange
+        ? 'Confirm your new Quza email address'
+        : 'Verify your Quza email address';
+    const heading = isLogin
+      ? 'Sign in to Quza'
+      : isChange
+        ? 'Confirm your new email address'
+        : 'Verify your email address';
     const message = isLogin
       ? 'Use this one-time code to finish signing in. '
-      : 'Use this one-time code to verify your new Quza buyer account. ';
+      : isChange
+        ? 'Use this one-time code to make this the email address for your Quza account. '
+        : 'Use this one-time code to verify your new Quza buyer account. ';
 
     try {
       await this.getTransporter().sendMail({
@@ -168,6 +191,41 @@ export class EmailService {
       throw new ServiceUnavailableException(
         'We could not send a verification email. Please confirm your email address and try again.',
       );
+    }
+  }
+
+  async sendPasswordResetCodeEmail(email: PasswordResetCodeEmail): Promise<void> {
+    const name = escapeHtml(email.recipientName);
+    try {
+      await this.getTransporter().sendMail({
+        from: this.getFromAddress(),
+        to: email.recipientEmail,
+        subject: `${email.code} is your Quza password reset code`,
+        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#0f766e;font-size:24px">Reset your password</h1><p>Hello ${name},</p><p>Use this code to choose a new password for your Quza account. It expires in 15 minutes and can be used once.</p><p style="margin:28px 0;padding:16px;text-align:center;border-radius:8px;background:#f0fdfa;color:#115e59;font-family:monospace;font-size:30px;font-weight:bold;letter-spacing:6px">${email.code}</p><p style="font-size:14px;color:#475569">If you didn’t ask to reset your password, you can ignore this email — your password won’t change. Never share this code with anyone, including people claiming to be from Quza.</p><p style="margin:28px 0 0">Regards,<br /><strong>The Quza Team</strong></p></main></body></html>`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Password reset code email failed: ${message}`);
+      throw new ServiceUnavailableException(
+        'We could not send a password-reset email. Please try again shortly.',
+      );
+    }
+  }
+
+  /** Tells the previous address that the account email was changed. */
+  async sendEmailChangedNotice(email: EmailChangedNotice): Promise<void> {
+    const name = escapeHtml(email.recipientName);
+    const newEmail = escapeHtml(email.newEmail);
+    try {
+      await this.getTransporter().sendMail({
+        from: this.getFromAddress(),
+        to: email.recipientEmail,
+        subject: 'Your Quza email address was changed',
+        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#0f766e;font-size:24px">Your email address was changed</h1><p>Hello ${name},</p><p>The email address for your Quza account is now <strong>${newEmail}</strong>. Sign-in codes, receipts and order updates will go there from now on.</p><p style="font-size:14px;color:#475569">If you did not make this change, reply to this email straight away so we can secure your account.</p><p style="margin:28px 0 0">Regards,<br /><strong>The Quza Team</strong></p></main></body></html>`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Email-changed notice failed: ${message}`);
     }
   }
 

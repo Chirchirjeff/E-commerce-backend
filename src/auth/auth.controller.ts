@@ -11,7 +11,13 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { SkipGuard } from './decorators/skip-guard.decorator';
@@ -69,18 +75,30 @@ export class AuthController {
     return this.authService.verifyBuyerCode(body);
   }
 
-  @Post('buyer/password-reset/request')
+  // ── Password reset by emailed code (buyers and sellers) ─────────────────
+  // The buyer/* paths are kept for app versions already in people's hands.
+
+  @Post(['password-reset/request', 'buyer/password-reset/request'])
   @SkipGuard()
   @HttpCode(HttpStatus.OK)
-  async requestBuyerPasswordReset(@Body() body: { email: string }) {
-    return this.authService.requestBuyerPasswordReset(body.email);
+  async requestPasswordReset(@Body() body: { email: string }) {
+    return this.authService.requestPasswordReset(body?.email);
   }
 
-  @Post('buyer/password-reset/confirm')
+  @Post('password-reset/verify')
   @SkipGuard()
   @HttpCode(HttpStatus.OK)
-  async confirmBuyerPasswordReset(@Body() body: { token: string; password: string }) {
-    return this.authService.confirmBuyerPasswordReset(body.token, body.password);
+  async verifyPasswordResetCode(@Body() body: { email: string; code: string }) {
+    return this.authService.verifyPasswordResetCode(body?.email, body?.code);
+  }
+
+  @Post(['password-reset/confirm', 'buyer/password-reset/confirm'])
+  @SkipGuard()
+  @HttpCode(HttpStatus.OK)
+  async confirmPasswordReset(
+    @Body() body: { email?: string; code?: string; token?: string; password: string },
+  ) {
+    return this.authService.confirmPasswordReset(body ?? ({} as any));
   }
 
   /**
@@ -91,10 +109,56 @@ export class AuthController {
     return this.authService.getSellerProfile(req.user.id);
   }
 
-  /** Buyer edits their own account name / phone. */
+  /** Buyer edits their own name, username and phone. */
   @Patch('me')
-  async updateBuyerProfile(@Req() req: any, @Body() body: { name?: string; phone?: string | null }) {
+  async updateBuyerProfile(
+    @Req() req: any,
+    @Body() body: { name?: string; phone?: string | null; username?: string | null },
+  ) {
     return this.authService.updateBuyerProfile(req.user.id, body);
+  }
+
+  /** GET /auth/me/username-check?username=jane.doe — live availability. */
+  @Get('me/username-check')
+  async checkUsername(@Req() req: any, @Query('username') username: string) {
+    return this.authService.checkUsername(req.user.id, username);
+  }
+
+  /** POST /auth/me/avatar (multipart, field "file") — set the profile photo. */
+  @Post('me/avatar')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        if (!file.mimetype.startsWith('image/')) {
+          return cb(new BadRequestException('Use a JPG, PNG, WebP or HEIC photo') as any, false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async uploadAvatar(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
+    return this.authService.setAvatar(req.user.id, file);
+  }
+
+  @Delete('me/avatar')
+  async removeAvatar(@Req() req: any) {
+    return this.authService.removeAvatar(req.user.id);
+  }
+
+  /** Step 1 of an email change: code goes to the new address. */
+  @Post('me/email/request')
+  @HttpCode(HttpStatus.OK)
+  async requestEmailChange(@Req() req: any, @Body() body: { newEmail: string; currentPassword: string }) {
+    return this.authService.requestEmailChange(req.user.id, body);
+  }
+
+  /** Step 2: confirm the code; returns a fresh token and the updated account. */
+  @Post('me/email/confirm')
+  @HttpCode(HttpStatus.OK)
+  async confirmEmailChange(@Req() req: any, @Body() body: { code: string }) {
+    return this.authService.confirmEmailChange(req.user.id, body?.code);
   }
 
   /** Buyer changes their password while signed in. */

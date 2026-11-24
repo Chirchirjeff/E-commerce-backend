@@ -95,6 +95,10 @@ model User {
   password  String
   name      String
   phone     String?
+  /// Public handle shown across Quza (stored lowercase, e.g. "jane.doe").
+  username  String?  @unique
+  /// Square profile photo on Cloudinary.
+  avatarUrl String?
   // Buyers must verify their email before they can place and view orders.
   emailVerifiedAt DateTime?
   shops     Shop[]
@@ -136,7 +140,11 @@ model AuthVerificationCode {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   purpose   String
+  /// Value the code authorises, e.g. the new address for CHANGE_EMAIL.
+  target    String?
   codeHash  String
+  /// Wrong guesses so far; the code is burned after MAX_CODE_ATTEMPTS.
+  attempts  Int      @default(0)
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime @default(now())

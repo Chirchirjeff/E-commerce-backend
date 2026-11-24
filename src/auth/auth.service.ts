@@ -11,6 +11,34 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { EmailService } from '../email/email.service';
+import {
+  cloudinaryPublicId,
+  destroyCloudinaryImage,
+  uploadAvatarToCloudinary,
+} from '../lib/cloudinary';
+import { normalizeUsername, usernameBase, usernameProblem } from './username';
+
+/** Fields every client reads for the signed-in account. */
+const ACCOUNT_SELECT = {
+  id: true,
+  name: true,
+  username: true,
+  avatarUrl: true,
+  email: true,
+  phone: true,
+  emailVerifiedAt: true,
+  addresses: { orderBy: [{ isDefault: 'desc' as const }, { updatedAt: 'desc' as const }] },
+  createdAt: true,
+};
+
+/** Wrong guesses allowed before a one-time code is burned. */
+const MAX_CODE_ATTEMPTS = 5;
+
+const PASSWORD_RESET_TTL_MS = 15 * 60 * 1000;
+const PASSWORD_RESET_RESEND_MS = 60 * 1000;
+
+const EMAIL_CHANGE_TTL_MS = 10 * 60 * 1000;
+const EMAIL_CHANGE_RESEND_MS = 60 * 1000;
 
 /** Maximum saved delivery addresses per buyer (keep in sync with the webapp). */
 export const MAX_BUYER_ADDRESSES = 5;
@@ -189,7 +217,13 @@ export class AuthService {
     if (existing) throw new ConflictException('An account with this email already exists. Please sign in.');
 
     const user = await this.prisma.client.user.create({
-      data: { name, email, phone, password: await bcrypt.hash(password, 10) },
+      data: {
+        name,
+        email,
+        phone,
+        username: await this.availableUsername(usernameBase(name, email)),
+        password: await bcrypt.hash(password, 10),
+      },
     });
     try {
       await this.issueBuyerCode(user.id, user.email, user.name, 'VERIFY_EMAIL');
@@ -230,7 +264,7 @@ export class AuthService {
       where: { userId: user.id, purpose, usedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
     });
-    if (!verification || !crypto.timingSafeEqual(Buffer.from(verification.codeHash), Buffer.from(this.hashCode(code)))) {
+    if (!verification || !(await this.codeMatches(verification, code))) {
       throw new UnauthorizedException('The verification code is invalid or expired');
     }
     await this.prisma.client.$transaction([
@@ -240,72 +274,152 @@ export class AuthService {
     return this.generateToken(user.id, user.email);
   }
 
-  /**
-   * Sends a one-time password-reset link. The response intentionally does not
-   * reveal whether the email belongs to a buyer account.
-   */
-  async requestBuyerPasswordReset(rawEmail: string) {
+  // ── Password reset (any account in the users table: buyers and sellers) ──
+  // A 6-digit code is emailed; the buyer/seller types it into whichever app
+  // they are using (Mall, webapp, seller portal). Responses never reveal
+  // whether an email is registered.
+
+  async requestPasswordReset(rawEmail: string) {
     const email = String(rawEmail ?? '').trim().toLowerCase();
     const confirmation = {
-      message: 'If an account exists for this email address, we sent a password-reset link.',
+      message: 'If an account exists for this email address, we sent it a 6-digit reset code.',
+      expiresInSeconds: PASSWORD_RESET_TTL_MS / 1000,
     };
-
     if (!email || !email.includes('@')) return confirmation;
 
     const user = await this.prisma.client.user.findUnique({ where: { email } });
     if (!user) return confirmation;
 
-    const token = crypto.randomBytes(32).toString('hex');
+    // Quietly skip re-sends inside the cool-down so the inbox isn't flooded.
+    const recent = await this.prisma.client.authVerificationCode.findFirst({
+      where: {
+        userId: user.id,
+        purpose: 'PASSWORD_RESET',
+        createdAt: { gt: new Date(Date.now() - PASSWORD_RESET_RESEND_MS) },
+      },
+      select: { id: true },
+    });
+    if (recent) return confirmation;
+
+    const code = crypto.randomInt(100000, 1_000_000).toString();
     await this.prisma.client.authVerificationCode.updateMany({
       where: { userId: user.id, purpose: 'PASSWORD_RESET', usedAt: null },
       data: { usedAt: new Date() },
     });
-    await this.prisma.client.authVerificationCode.create({
+    const row = await this.prisma.client.authVerificationCode.create({
       data: {
         userId: user.id,
         purpose: 'PASSWORD_RESET',
-        codeHash: this.hashCode(token),
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        codeHash: this.hashCode(code),
+        expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS),
       },
     });
-
-    const storefrontUrl = (process.env.STOREFRONT_URL || 'http://localhost:3000').replace(/\/$/, '');
-    await this.emailService.sendBuyerPasswordResetEmail({
-      recipientEmail: user.email,
-      recipientName: user.name,
-      resetUrl: `${storefrontUrl}/reset-password?token=${encodeURIComponent(token)}`,
-    });
+    try {
+      await this.emailService.sendPasswordResetCodeEmail({
+        recipientEmail: user.email,
+        recipientName: user.name,
+        code,
+      });
+    } catch (error) {
+      await this.prisma.client.authVerificationCode.delete({ where: { id: row.id } });
+      throw error;
+    }
     return confirmation;
   }
 
-  async confirmBuyerPasswordReset(rawToken: string, rawPassword: string) {
-    const token = String(rawToken ?? '').trim();
-    const password = String(rawPassword ?? '');
-    if (!token || password.length < 8) {
-      throw new BadRequestException('Use a valid reset link and a password of at least 8 characters.');
+  /** Optional step: checks a code before the new password is chosen. */
+  async verifyPasswordResetCode(rawEmail: string, rawCode: string) {
+    await this.findPasswordResetCode(rawEmail, rawCode);
+    return { valid: true };
+  }
+
+  /**
+   * Sets the new password. Accepts { email, code } (current flow) or the
+   * { token } from reset links emailed before codes replaced them.
+   */
+  async confirmPasswordReset(body: { email?: string; code?: string; token?: string; password: string }) {
+    const password = String(body.password ?? '');
+    if (password.length < 8) throw new BadRequestException('Password must be at least 8 characters');
+
+    let reset: { id: string; userId: string };
+    if (body.token && !body.code) {
+      const legacy = await this.prisma.client.authVerificationCode.findFirst({
+        where: {
+          purpose: 'PASSWORD_RESET',
+          codeHash: this.hashCode(String(body.token).trim()),
+          usedAt: null,
+          expiresAt: { gt: new Date() },
+        },
+      });
+      if (!legacy) throw new BadRequestException('This password-reset link is invalid or has expired.');
+      reset = legacy;
+    } else {
+      reset = await this.findPasswordResetCode(body.email ?? '', body.code ?? '');
     }
 
-    const reset = await this.prisma.client.authVerificationCode.findFirst({
-      where: {
-        purpose: 'PASSWORD_RESET',
-        codeHash: this.hashCode(token),
-        usedAt: null,
-        expiresAt: { gt: new Date() },
-      },
+    const user = await this.prisma.client.user.findUnique({
+      where: { id: reset.userId },
+      select: { id: true, email: true, emailVerifiedAt: true },
     });
-    if (!reset) throw new BadRequestException('This password-reset link is invalid or has expired.');
+    if (!user) throw new BadRequestException('The reset code is invalid or has expired');
 
     await this.prisma.client.$transaction([
       this.prisma.client.user.update({
-        where: { id: reset.userId },
-        data: { password: await bcrypt.hash(password, 10) },
+        where: { id: user.id },
+        data: {
+          password: await bcrypt.hash(password, 10),
+          // Receiving the code proves the buyer owns the address.
+          ...(user.emailVerifiedAt ? {} : { emailVerifiedAt: new Date() }),
+        },
       }),
-      this.prisma.client.authVerificationCode.update({
-        where: { id: reset.id },
+      // Burn this and any other outstanding codes for the account.
+      this.prisma.client.authVerificationCode.updateMany({
+        where: { userId: user.id, usedAt: null },
         data: { usedAt: new Date() },
       }),
     ]);
-    return { message: 'Your password has been changed. You can now sign in.' };
+    return {
+      message: 'Your password has been changed.',
+      ...this.generateToken(user.id, user.email),
+    };
+  }
+
+  private async findPasswordResetCode(rawEmail: string, rawCode: string) {
+    const email = String(rawEmail ?? '').trim().toLowerCase();
+    const code = String(rawCode ?? '').trim();
+    const invalid = new BadRequestException('The reset code is invalid or has expired');
+    if (!email) throw invalid;
+    const user = await this.prisma.client.user.findUnique({ where: { email }, select: { id: true } });
+    if (!user) throw invalid;
+    const row = await this.prisma.client.authVerificationCode.findFirst({
+      where: { userId: user.id, purpose: 'PASSWORD_RESET', usedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!row || !(await this.codeMatches(row, code))) throw invalid;
+    return row;
+  }
+
+  /**
+   * Constant-time code check that counts wrong guesses and burns the code
+   * after MAX_CODE_ATTEMPTS, so a 6-digit code can't be brute-forced.
+   */
+  private async codeMatches(row: { id: string; codeHash: string }, code: string): Promise<boolean> {
+    const ok =
+      /^\d{6}$/.test(code) &&
+      crypto.timingSafeEqual(Buffer.from(row.codeHash), Buffer.from(this.hashCode(code)));
+    if (ok) return true;
+    const updated = await this.prisma.client.authVerificationCode.update({
+      where: { id: row.id },
+      data: { attempts: { increment: 1 } },
+      select: { attempts: true },
+    });
+    if (updated.attempts >= MAX_CODE_ATTEMPTS) {
+      await this.prisma.client.authVerificationCode.update({
+        where: { id: row.id },
+        data: { usedAt: new Date() },
+      });
+    }
+    return false;
   }
 
   private hashCode(code: string) {
@@ -341,15 +455,7 @@ export class AuthService {
   async getSellerProfile(userId: string) {
     const user = await this.prisma.client.user.findUnique({
       where: { id: userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        emailVerifiedAt: true,
-        addresses: { orderBy: [{ isDefault: 'desc' }, { updatedAt: 'desc' }] },
-        createdAt: true,
-      },
+      select: ACCOUNT_SELECT,
     });
 
     if (!user) {
@@ -359,8 +465,22 @@ export class AuthService {
     return { user };
   }
 
-  async updateBuyerProfile(userId: string, body: { name?: string; phone?: string | null }) {
-    const data: { name?: string; phone?: string | null } = {};
+  async updateBuyerProfile(
+    userId: string,
+    body: { name?: string; phone?: string | null; username?: string | null },
+  ) {
+    const data: { name?: string; phone?: string | null; username?: string } = {};
+    if (body.username !== undefined && body.username !== null) {
+      const username = normalizeUsername(body.username);
+      const problem = usernameProblem(username);
+      if (problem) throw new BadRequestException(problem);
+      const taken = await this.prisma.client.user.findFirst({
+        where: { username, NOT: { id: userId } },
+        select: { id: true },
+      });
+      if (taken) throw new ConflictException('That username is already taken');
+      data.username = username;
+    }
     if (body.name !== undefined) {
       const name = String(body.name ?? '').trim();
       if (!name) throw new BadRequestException('Please enter your full name');
@@ -375,9 +495,202 @@ export class AuthService {
       data.phone = phone || null;
     }
     if (Object.keys(data).length) {
-      await this.prisma.client.user.update({ where: { id: userId }, data });
+      try {
+        await this.prisma.client.user.update({ where: { id: userId }, data });
+      } catch (error: any) {
+        // Two people claiming the same handle at the same moment.
+        if (error?.code === 'P2002') throw new ConflictException('That username is already taken');
+        throw error;
+      }
     }
     return this.getSellerProfile(userId);
+  }
+
+  // ── Username ─────────────────────────────────────────────────────────────
+
+  /** Live availability check for the username field, with suggestions. */
+  async checkUsername(userId: string, raw: string) {
+    const username = normalizeUsername(raw);
+    const problem = usernameProblem(username);
+    if (problem) return { username, available: false, reason: problem, suggestions: [] };
+    const owner = await this.prisma.client.user.findUnique({
+      where: { username },
+      select: { id: true },
+    });
+    if (!owner || owner.id === userId) {
+      return { username, available: true, reason: null, suggestions: [] };
+    }
+    return {
+      username,
+      available: false,
+      reason: 'That username is already taken',
+      suggestions: await this.usernameSuggestions(username),
+    };
+  }
+
+  private async usernameSuggestions(base: string): Promise<string[]> {
+    const stem = base.replace(/[._]?\d+$/, '').slice(0, 24) || base.slice(0, 24);
+    const candidates = new Set<string>();
+    for (const sep of ['', '.', '_']) {
+      candidates.add(`${stem}${sep}${crypto.randomInt(10, 100)}`);
+    }
+    candidates.add(`${stem}${crypto.randomInt(100, 1000)}`);
+    candidates.add(`${stem}.ke`);
+    const list = [...candidates].filter((c) => !usernameProblem(c));
+    const taken = await this.prisma.client.user.findMany({
+      where: { username: { in: list } },
+      select: { username: true },
+    });
+    const takenSet = new Set(taken.map((t) => t.username));
+    return list.filter((c) => !takenSet.has(c)).slice(0, 3);
+  }
+
+  /** The base handle if free, otherwise the base with a short number added. */
+  private async availableUsername(base: string): Promise<string> {
+    const free = async (u: string) =>
+      !(await this.prisma.client.user.findUnique({ where: { username: u }, select: { id: true } }));
+    if (await free(base)) return base;
+    for (let i = 0; i < 8; i++) {
+      const candidate = `${base.slice(0, 25)}${crypto.randomInt(10, 10_000)}`;
+      if (await free(candidate)) return candidate;
+    }
+    return `${base.slice(0, 20)}${crypto.randomBytes(4).toString('hex')}`;
+  }
+
+  // ── Profile photo ────────────────────────────────────────────────────────
+
+  async setAvatar(userId: string, file: { buffer: Buffer; mimetype: string; size: number } | undefined) {
+    if (!file?.buffer?.length) throw new BadRequestException('Choose a photo to upload');
+    if (!/^image\/(jpeg|png|webp|heic|heif)$/.test(file.mimetype)) {
+      throw new BadRequestException('Use a JPG, PNG, WebP or HEIC photo');
+    }
+    const current = await this.prisma.client.user.findUnique({
+      where: { id: userId },
+      select: { avatarUrl: true },
+    });
+    if (!current) throw new UnauthorizedException('User not found');
+
+    const folder = `${process.env.CLOUDINARY_FOLDER ?? 'quza'}/avatars`;
+    let uploaded: { url: string; publicId: string };
+    try {
+      uploaded = await uploadAvatarToCloudinary(file.buffer, folder);
+    } catch {
+      throw new BadRequestException('We couldn’t upload that photo. Please try another one.');
+    }
+    await this.prisma.client.user.update({ where: { id: userId }, data: { avatarUrl: uploaded.url } });
+    await this.removeStoredAvatar(current.avatarUrl);
+    return this.getSellerProfile(userId);
+  }
+
+  async removeAvatar(userId: string) {
+    const current = await this.prisma.client.user.findUnique({
+      where: { id: userId },
+      select: { avatarUrl: true },
+    });
+    if (!current) throw new UnauthorizedException('User not found');
+    if (current.avatarUrl) {
+      await this.prisma.client.user.update({ where: { id: userId }, data: { avatarUrl: null } });
+      await this.removeStoredAvatar(current.avatarUrl);
+    }
+    return this.getSellerProfile(userId);
+  }
+
+  private async removeStoredAvatar(url: string | null) {
+    const publicId = url ? cloudinaryPublicId(url) : null;
+    if (publicId && publicId.includes('/avatars/')) await destroyCloudinaryImage(publicId);
+  }
+
+  // ── Email change (verified) ──────────────────────────────────────────────
+  // The new address only replaces the old one after the buyer enters a code
+  // sent to it, and the old address is told about the change — the same
+  // pattern Google and Amazon use, so a stolen session can't silently take
+  // over the account's recovery email.
+
+  async requestEmailChange(userId: string, body: { newEmail: string; currentPassword: string }) {
+    const newEmail = String(body.newEmail ?? '').trim().toLowerCase();
+    const password = String(body.currentPassword ?? '');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+      throw new BadRequestException('Please enter a valid email address');
+    }
+    const user = await this.prisma.client.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('User not found');
+    if (!(await bcrypt.compare(password, user.password))) {
+      throw new BadRequestException('Your current password is incorrect');
+    }
+    if (newEmail === user.email) throw new BadRequestException('That is already your email address');
+    const taken = await this.prisma.client.user.findUnique({ where: { email: newEmail }, select: { id: true } });
+    if (taken) throw new ConflictException('Another account already uses that email address');
+
+    const recent = await this.prisma.client.authVerificationCode.findFirst({
+      where: {
+        userId,
+        purpose: 'CHANGE_EMAIL',
+        createdAt: { gt: new Date(Date.now() - EMAIL_CHANGE_RESEND_MS) },
+      },
+      select: { id: true },
+    });
+    if (recent) throw new BadRequestException('Please wait a minute before requesting another code');
+
+    const code = crypto.randomInt(100000, 1_000_000).toString();
+    await this.prisma.client.authVerificationCode.updateMany({
+      where: { userId, purpose: 'CHANGE_EMAIL', usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    const row = await this.prisma.client.authVerificationCode.create({
+      data: {
+        userId,
+        purpose: 'CHANGE_EMAIL',
+        target: newEmail,
+        codeHash: this.hashCode(code),
+        expiresAt: new Date(Date.now() + EMAIL_CHANGE_TTL_MS),
+      },
+    });
+    try {
+      await this.emailService.sendBuyerCodeEmail({
+        recipientEmail: newEmail,
+        recipientName: user.name,
+        code,
+        purpose: 'change-email',
+      });
+    } catch (error) {
+      await this.prisma.client.authVerificationCode.delete({ where: { id: row.id } });
+      throw error;
+    }
+    return { email: newEmail, expiresInSeconds: EMAIL_CHANGE_TTL_MS / 1000 };
+  }
+
+  async confirmEmailChange(userId: string, rawCode: string) {
+    const code = String(rawCode ?? '').trim();
+    const pending = await this.prisma.client.authVerificationCode.findFirst({
+      where: { userId, purpose: 'CHANGE_EMAIL', usedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!pending?.target || !(await this.codeMatches(pending, code))) {
+      throw new BadRequestException('The verification code is invalid or expired');
+    }
+    const user = await this.prisma.client.user.findUnique({
+      where: { id: userId },
+      select: { email: true, name: true },
+    });
+    if (!user) throw new UnauthorizedException('User not found');
+    const newEmail = pending.target;
+    try {
+      await this.prisma.client.$transaction([
+        this.prisma.client.authVerificationCode.update({ where: { id: pending.id }, data: { usedAt: new Date() } }),
+        this.prisma.client.user.update({
+          where: { id: userId },
+          data: { email: newEmail, emailVerifiedAt: new Date() },
+        }),
+      ]);
+    } catch (error: any) {
+      if (error?.code === 'P2002') throw new ConflictException('Another account already uses that email address');
+      throw error;
+    }
+    // Security notice to the previous address; never blocks the change.
+    this.emailService
+      .sendEmailChangedNotice({ recipientEmail: user.email, recipientName: user.name, newEmail })
+      .catch(() => undefined);
+    return { ...this.generateToken(userId, newEmail), ...(await this.getSellerProfile(userId)) };
   }
 
   async changeBuyerPassword(userId: string, body: { currentPassword: string; newPassword: string }) {

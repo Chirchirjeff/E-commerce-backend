@@ -38,3 +38,50 @@ export function uploadToCloudinary(
     stream.end(buffer);
   });
 }
+
+/**
+ * Uploads a profile photo, cropped server-side to a 512px square centred on
+ * the face so every client can render it as a circle without extra work.
+ * Returns the delivery URL and the public id (needed to delete it later).
+ */
+export function uploadAvatarToCloudinary(
+  buffer: Buffer,
+  folder: string,
+): Promise<{ url: string; publicId: string }> {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        resource_type: 'image',
+        transformation: [
+          { width: 512, height: 512, crop: 'fill', gravity: 'face' },
+          { quality: 'auto', fetch_format: 'jpg' },
+        ],
+      },
+      (error, result) => {
+        if (error || !result) {
+          return reject(error ?? new Error('Cloudinary upload failed'));
+        }
+        resolve({ url: result.secure_url, publicId: result.public_id });
+      },
+    );
+    stream.end(buffer);
+  });
+}
+
+/** Public id of a Cloudinary delivery URL, or null if it is not one of ours. */
+export function cloudinaryPublicId(url: string): string | null {
+  const m = url.match(
+    /res\.cloudinary\.com\/[^/]+\/image\/upload\/(?:[^/]*,[^/]*\/)*(?:v\d+\/)?(.+?)\.[a-z0-9]+$/i,
+  );
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+/** Best-effort delete; a failure only leaves an orphaned image behind. */
+export async function destroyCloudinaryImage(publicId: string): Promise<void> {
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
+  } catch {
+    /* ignore */
+  }
+}

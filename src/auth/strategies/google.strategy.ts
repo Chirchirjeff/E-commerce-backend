@@ -1,15 +1,31 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, VerifyCallback } from 'passport-google-oauth20';
 import { AuthService } from '../auth.service';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
+  private static readonly logger = new Logger('GoogleStrategy');
+
   constructor(private authService: AuthService) {
+    const clientID = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const callbackURL = process.env.GOOGLE_CALLBACK_URL;
+
+    if (!clientID || !clientSecret || !callbackURL) {
+      GoogleStrategy.logger.warn(
+        'Google OAuth credentials are not configured. ' +
+        'Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_CALLBACK_URL ' +
+        'in your environment variables. Google sign-in will be unavailable.',
+      );
+    }
+
     super({
-      clientID: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      callbackURL: process.env.GOOGLE_CALLBACK_URL!,
+      // Fall back to placeholder values so the server starts even without
+      // credentials — the endpoints will return 500 if actually called.
+      clientID: clientID ?? 'unconfigured',
+      clientSecret: clientSecret ?? 'unconfigured',
+      callbackURL: callbackURL ?? 'http://localhost:4000/auth/google/callback',
       scope: ['email', 'profile'],
     });
   }

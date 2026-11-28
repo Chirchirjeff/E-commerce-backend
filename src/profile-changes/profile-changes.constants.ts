@@ -16,7 +16,7 @@ export type ProfileField =
  * - OTP_NEW_EMAIL: a code goes to the NEW address, proving the seller owns it.
  * - OTP_CURRENT_EMAIL: a code goes to the current login email (step-up check).
  *   Used for phone until an SMS provider is connected.
- * - ADMIN_REVIEW: KYC-verified details; a Quza admin approves or rejects.
+ * - ADMIN_REVIEW: KYC-verified details; a Quzaurban admin approves or rejects.
  */
 export type ChangeChannel = 'OTP_NEW_EMAIL' | 'OTP_CURRENT_EMAIL' | 'ADMIN_REVIEW';
 
@@ -94,7 +94,7 @@ export const PROFILE_FIELDS: FieldDefinition[] = [
     channel: 'ADMIN_REVIEW',
     requiresVerifiedKyc: false,
     process:
-      'Your name is checked against your ID, so a Quza admin reviews the change. Attach a photo of a supporting document to speed things up.',
+      'Your name is checked against your ID, so a Quzaurban admin reviews the change. Attach a photo of a supporting document to speed things up.',
     updates: ['Account name'],
     reasons: [
       { code: 'LEGAL_NAME_CHANGE', label: 'Legal name change (marriage, deed poll, etc.)' },
@@ -109,7 +109,7 @@ export const PROFILE_FIELDS: FieldDefinition[] = [
     channel: 'ADMIN_REVIEW',
     requiresVerifiedKyc: true,
     process:
-      'Business details were verified during KYC, so a Quza admin reviews the change. Attach your updated registration certificate if you have one.',
+      'Business details were verified during KYC, so a Quzaurban admin reviews the change. Attach your updated registration certificate if you have one.',
     updates: ['Business verification (KYC) record'],
     reasons: [
       { code: 'REBRANDED', label: 'The business has rebranded' },
@@ -125,7 +125,7 @@ export const PROFILE_FIELDS: FieldDefinition[] = [
     channel: 'ADMIN_REVIEW',
     requiresVerifiedKyc: true,
     process:
-      'Business details were verified during KYC, so a Quza admin reviews the change. Attach proof of address (e.g. a utility bill or lease) if you have one.',
+      'Business details were verified during KYC, so a Quzaurban admin reviews the change. Attach proof of address (e.g. a utility bill or lease) if you have one.',
     updates: ['Business verification (KYC) record'],
     reasons: [
       { code: 'RELOCATED', label: 'The business has moved' },
@@ -140,7 +140,7 @@ export const PROFILE_FIELDS: FieldDefinition[] = [
     channel: 'ADMIN_REVIEW',
     requiresVerifiedKyc: true,
     process:
-      'Your tax PIN is used for compliance, so a Quza admin verifies the change. Attach your PIN certificate if you have one.',
+      'Your tax PIN is used for compliance, so a Quzaurban admin verifies the change. Attach your PIN certificate if you have one.',
     updates: ['Business verification (KYC) record'],
     reasons: [
       { code: 'INCORRECT_PIN', label: 'The PIN I submitted was incorrect' },

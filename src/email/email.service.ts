@@ -149,11 +149,11 @@ export class EmailService {
     const businessName = escapeHtml(email.businessName);
     const isApproved = email.outcome === 'approved';
     const subject = isApproved
-      ? `Your Quza seller KYC has been approved, ${email.recipientName}`
-      : `Action required: your Quza seller KYC was declined`;
+      ? `Your Quzaurban seller KYC has been approved, ${email.recipientName}`
+      : `Action required: your Quzaurban seller KYC was declined`;
     const heading = isApproved ? 'Your seller account is verified' : 'Your KYC needs attention';
     const body = isApproved
-      ? `Great news — <strong>${businessName}</strong> has been verified and is ready to sell on Quza.`
+      ? `Great news — <strong>${businessName}</strong> has been verified and is ready to sell on Quzaurban.`
       : `We could not verify <strong>${businessName}</strong> at this time. Please review the reason below, update your documents, and submit your KYC again.`;
     const reason = !isApproved && email.reason
       ? `<p style="margin:24px 0 0;padding:16px;background:#fff7ed;border-left:4px solid #ea580c"><strong>Review note:</strong><br />${escapeHtml(email.reason)}</p>`
@@ -164,7 +164,7 @@ export class EmailService {
         from: this.getFromAddress(),
         to: email.recipientEmail,
         subject,
-        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">${heading}</h1><p>Hello ${recipientName},</p><p>${body}</p>${reason}<p style="margin:28px 0 0">Regards,<br /><strong>The Quza Team</strong></p></main></body></html>`,
+        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">${heading}</h1><p>Hello ${recipientName},</p><p>${body}</p>${reason}<p style="margin:28px 0 0">Regards,<br /><strong>The Quzaurban Team</strong></p></main></body></html>`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -179,27 +179,27 @@ export class EmailService {
     const isLogin = email.purpose === 'login';
     const isChange = email.purpose === 'change-email';
     const subject = isLogin
-      ? 'Your Quza sign-in code'
+      ? 'Your Quzaurban sign-in code'
       : isChange
-        ? 'Confirm your new Quza email address'
-        : 'Verify your Quza email address';
+        ? 'Confirm your new Quzaurban email address'
+        : 'Verify your Quzaurban email address';
     const heading = isLogin
-      ? 'Sign in to Quza'
+      ? 'Sign in to Quzaurban'
       : isChange
         ? 'Confirm your new email address'
         : 'Verify your email address';
     const message = isLogin
       ? 'Use this one-time code to finish signing in. '
       : isChange
-        ? 'Use this one-time code to make this the email address for your Quza account. '
-        : 'Use this one-time code to verify your new Quza buyer account. ';
+        ? 'Use this one-time code to make this the email address for your Quzaurban account. '
+        : 'Use this one-time code to verify your new Quzaurban buyer account. ';
 
     try {
       await this.getTransporter().sendMail({
         from: this.getFromAddress(),
         to: email.recipientEmail,
         subject,
-        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">${heading}</h1><p>Hello ${name},</p><p>${message}It expires in 10 minutes.</p><p style="margin:28px 0;padding:16px;text-align:center;border-radius:8px;background:#f7f5ff;color:#542da6;font-family:monospace;font-size:30px;font-weight:bold;letter-spacing:6px">${email.code}</p><p>If you did not request this, you can safely ignore this email.</p><p style="margin:28px 0 0">Regards,<br /><strong>The Quza Team</strong></p></main></body></html>`,
+        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">${heading}</h1><p>Hello ${name},</p><p>${message}It expires in 10 minutes.</p><p style="margin:28px 0;padding:16px;text-align:center;border-radius:8px;background:#f7f5ff;color:#542da6;font-family:monospace;font-size:30px;font-weight:bold;letter-spacing:6px">${email.code}</p><p>If you did not request this, you can safely ignore this email.</p><p style="margin:28px 0 0">Regards,<br /><strong>The Quzaurban Team</strong></p></main></body></html>`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -216,8 +216,8 @@ export class EmailService {
       await this.getTransporter().sendMail({
         from: this.getFromAddress(),
         to: email.recipientEmail,
-        subject: `${email.code} is your Quza password reset code`,
-        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">Reset your password</h1><p>Hello ${name},</p><p>Use this code to choose a new password for your Quza account. It expires in 15 minutes and can be used once.</p><p style="margin:28px 0;padding:16px;text-align:center;border-radius:8px;background:#f7f5ff;color:#542da6;font-family:monospace;font-size:30px;font-weight:bold;letter-spacing:6px">${email.code}</p><p style="font-size:14px;color:#475569">If you didn’t ask to reset your password, you can ignore this email — your password won’t change. Never share this code with anyone, including people claiming to be from Quza.</p><p style="margin:28px 0 0">Regards,<br /><strong>The Quza Team</strong></p></main></body></html>`,
+        subject: `${email.code} is your Quzaurban password reset code`,
+        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">Reset your password</h1><p>Hello ${name},</p><p>Use this code to choose a new password for your Quzaurban account. It expires in 15 minutes and can be used once.</p><p style="margin:28px 0;padding:16px;text-align:center;border-radius:8px;background:#f7f5ff;color:#542da6;font-family:monospace;font-size:30px;font-weight:bold;letter-spacing:6px">${email.code}</p><p style="font-size:14px;color:#475569">If you didn’t ask to reset your password, you can ignore this email — your password won’t change. Never share this code with anyone, including people claiming to be from Quzaurban.</p><p style="margin:28px 0 0">Regards,<br /><strong>The Quzaurban Team</strong></p></main></body></html>`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -236,8 +236,8 @@ export class EmailService {
       await this.getTransporter().sendMail({
         from: this.getFromAddress(),
         to: email.recipientEmail,
-        subject: 'Your Quza email address was changed',
-        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">Your email address was changed</h1><p>Hello ${name},</p><p>The email address for your Quza account is now <strong>${newEmail}</strong>. Sign-in codes, receipts and order updates will go there from now on.</p><p style="font-size:14px;color:#475569">If you did not make this change, reply to this email straight away so we can secure your account.</p><p style="margin:28px 0 0">Regards,<br /><strong>The Quza Team</strong></p></main></body></html>`,
+        subject: 'Your Quzaurban email address was changed',
+        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">Your email address was changed</h1><p>Hello ${name},</p><p>The email address for your Quzaurban account is now <strong>${newEmail}</strong>. Sign-in codes, receipts and order updates will go there from now on.</p><p style="font-size:14px;color:#475569">If you did not make this change, reply to this email straight away so we can secure your account.</p><p style="margin:28px 0 0">Regards,<br /><strong>The Quzaurban Team</strong></p></main></body></html>`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -252,8 +252,8 @@ export class EmailService {
       await this.getTransporter().sendMail({
         from: this.getFromAddress(),
         to: email.recipientEmail,
-        subject: 'Reset your Quza password',
-        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">Reset your password</h1><p>Hello ${name},</p><p>We received a request to reset the password for your Quza buyer account. This link expires in one hour and can be used once.</p><p style="margin:28px 0"><a href="${resetUrl}" style="display:inline-block;background:#6535cc;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Choose a new password</a></p><p style="font-size:14px;color:#475569">If you did not request this, you can safely ignore this email. Your password will not change.</p><p style="margin:28px 0 0">Regards,<br /><strong>The Quza Team</strong></p></main></body></html>`,
+        subject: 'Reset your Quzaurban password',
+        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">Reset your password</h1><p>Hello ${name},</p><p>We received a request to reset the password for your Quzaurban buyer account. This link expires in one hour and can be used once.</p><p style="margin:28px 0"><a href="${resetUrl}" style="display:inline-block;background:#6535cc;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Choose a new password</a></p><p style="font-size:14px;color:#475569">If you did not request this, you can safely ignore this email. Your password will not change.</p><p style="margin:28px 0 0">Regards,<br /><strong>The Quzaurban Team</strong></p></main></body></html>`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -282,7 +282,7 @@ export class EmailService {
         from: this.getFromAddress(),
         to: email.recipientEmail,
         subject: `Payment received for order ${email.orderNumber}`,
-        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">Payment received</h1><p>Hello ${recipientName},</p><p>We have received your payment of <strong>KES ${email.amount.toLocaleString('en-KE')}</strong> for order <strong>${orderNumber}</strong>.</p>${receipt}<p style="margin:24px 0 12px">To track this order later, sign in to your verified Quza account and enter this order number:</p><p style="margin:0;padding:14px;text-align:center;border-radius:8px;background:#f7f5ff;color:#542da6;font-family:monospace;font-size:20px;font-weight:bold">${orderNumber}</p><p style="margin:24px 0 12px"><a href="${trackingUrl}" style="display:inline-block;background:#6535cc;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Track your order</a></p><p style="margin:24px 0 0;color:#475569;font-size:14px">For your privacy, you will be asked to sign in and verify your account before viewing the order.</p><p style="margin:28px 0 0">Regards,<br /><strong>The Quza Team</strong></p></main></body></html>`,
+        html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">Payment received</h1><p>Hello ${recipientName},</p><p>We have received your payment of <strong>KES ${email.amount.toLocaleString('en-KE')}</strong> for order <strong>${orderNumber}</strong>.</p>${receipt}<p style="margin:24px 0 12px">To track this order later, sign in to your verified Quzaurban account and enter this order number:</p><p style="margin:0;padding:14px;text-align:center;border-radius:8px;background:#f7f5ff;color:#542da6;font-family:monospace;font-size:20px;font-weight:bold">${orderNumber}</p><p style="margin:24px 0 12px"><a href="${trackingUrl}" style="display:inline-block;background:#6535cc;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Track your order</a></p><p style="margin:24px 0 0;color:#475569;font-size:14px">For your privacy, you will be asked to sign in and verify your account before viewing the order.</p><p style="margin:28px 0 0">Regards,<br /><strong>The Quzaurban Team</strong></p></main></body></html>`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -291,17 +291,17 @@ export class EmailService {
   }
 
   private sellerLayout(heading: string, name: string, body: string) {
-    return `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">${heading}</h1><p>Hello ${escapeHtml(name)},</p>${body}<p style="margin:28px 0 0">Regards,<br /><strong>The Quza Team</strong></p></main></body></html>`;
+    return `<!doctype html><html><body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b"><main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;padding:32px"><h1 style="margin:0 0 20px;color:#6535cc;font-size:24px">${heading}</h1><p>Hello ${escapeHtml(name)},</p>${body}<p style="margin:28px 0 0">Regards,<br /><strong>The Quzaurban Team</strong></p></main></body></html>`;
   }
 
   /** One-time code confirming a seller account change. Throws if it can't be sent. */
   async sendSellerSecurityCodeEmail(email: SellerSecurityCodeEmail): Promise<void> {
-    const body = `<p>We received a request to ${email.action} (reference <strong>${escapeHtml(email.reference)}</strong>).</p><p>Enter this code in your seller dashboard to confirm. It expires in 10 minutes.</p><p style="margin:28px 0;padding:16px;text-align:center;border-radius:8px;background:#f7f5ff;color:#542da6;font-family:monospace;font-size:30px;font-weight:bold;letter-spacing:6px">${escapeHtml(email.code)}</p><p><strong>Never share this code.</strong> Quza staff will never ask for it. If you didn't request this change, ignore this email and change your password.</p>`;
+    const body = `<p>We received a request to ${email.action} (reference <strong>${escapeHtml(email.reference)}</strong>).</p><p>Enter this code in your seller dashboard to confirm. It expires in 10 minutes.</p><p style="margin:28px 0;padding:16px;text-align:center;border-radius:8px;background:#f7f5ff;color:#542da6;font-family:monospace;font-size:30px;font-weight:bold;letter-spacing:6px">${escapeHtml(email.code)}</p><p><strong>Never share this code.</strong> Quzaurban staff will never ask for it. If you didn't request this change, ignore this email and change your password.</p>`;
     try {
       await this.getTransporter().sendMail({
         from: this.getFromAddress(),
         to: email.recipientEmail,
-        subject: `Your Quza verification code: ${email.code}`,
+        subject: `Your Quzaurban verification code: ${email.code}`,
         html: this.sellerLayout('Confirm your account change', email.recipientName, body),
       });
     } catch (error) {

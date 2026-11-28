@@ -169,7 +169,7 @@ export class MpesaService {
       // Buyer sees this on their M-Pesa statement, e.g. "QZ-00043"
       AccountReference: accountReference,
       // Description shown on the PIN prompt screen
-      TransactionDesc: `Quza order ${orderNumber}`,
+      TransactionDesc: `Quzaurban order ${orderNumber}`,
     };
 
     this.logger.log(`Initiating STK push to ${phone} for KES ${payload.Amount}`);

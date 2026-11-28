@@ -1,5 +1,5 @@
 /**
- * Usernames are public handles shared by every Quza surface (webapp, Mall app,
+ * Usernames are public handles shared by every Quzaurban surface (webapp, Mall app,
  * seller portal, admin dashboard). Rules follow the familiar Instagram-style
  * format so they read well after an "@":
  *   - 3–30 characters: lowercase letters, digits, "." and "_"
@@ -12,7 +12,7 @@ export const USERNAME_MAX = 30;
 
 const USERNAME_RE = /^[a-z0-9](?:[a-z0-9_]|\.(?!\.)){1,28}[a-z0-9_]$/;
 
-/** Handles that could be mistaken for Quza staff or system routes. */
+/** Handles that could be mistaken for Quzaurban staff or system routes. */
 const RESERVED = new Set([
   'admin', 'administrator', 'quza', 'quzaurban', 'support', 'help', 'staff',
   'team', 'official', 'moderator', 'mod', 'root', 'system', 'security',

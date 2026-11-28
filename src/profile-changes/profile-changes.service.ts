@@ -193,7 +193,7 @@ export class ProfileChangesService {
       }
     } else {
       await this.notify(user.email, user.name, `We received your ${definition.label.toLowerCase()} change request`, [
-        `Your request to change your ${definition.label.toLowerCase()} has been sent to the Quza team for review (reference <strong>${request.reference}</strong>).`,
+        `Your request to change your ${definition.label.toLowerCase()} has been sent to the Quzaurban team for review (reference <strong>${request.reference}</strong>).`,
         'Reviews usually take 1–2 business days. We will email you as soon as a decision is made.',
         "If you didn't make this request, change your password and contact support immediately.",
       ]);
@@ -237,8 +237,8 @@ export class ProfileChangesService {
     const changedLabel = definition.label.toLowerCase();
     if (definition.field === 'EMAIL') {
       // Tell the OLD address — the standard defence against account takeover.
-      await this.notify(request.oldValue ?? user.email, user.name, 'Your Quza login email was changed', [
-        `The login email for your Quza seller account was changed to <strong>${this.escape(request.newValue)}</strong> (reference <strong>${request.reference}</strong>).`,
+      await this.notify(request.oldValue ?? user.email, user.name, 'Your Quzaurban login email was changed', [
+        `The login email for your Quzaurban seller account was changed to <strong>${this.escape(request.newValue)}</strong> (reference <strong>${request.reference}</strong>).`,
         "If you made this change, no action is needed. If you didn't, contact support immediately and quote the reference above.",
       ]);
     } else {
@@ -337,7 +337,7 @@ export class ProfileChangesService {
     // failure must never block the response or undo the approved change.
     void this.notify(user.email, user.name, `Your ${definition.label.toLowerCase()} change was approved`, [
       `Your request to change your ${definition.label.toLowerCase()} to <strong>${this.escape(request.newValue)}</strong> was approved (reference <strong>${request.reference}</strong>).`,
-      ...(note?.trim() ? [`Note from the Quza team: ${this.escape(note.trim())}`] : []),
+      ...(note?.trim() ? [`Note from the Quzaurban team: ${this.escape(note.trim())}`] : []),
     ]);
     return { ok: true, updated: applied };
   }
@@ -520,7 +520,7 @@ export class ProfileChangesService {
 
   private async assertEmailAvailable(email: string, userId: string) {
     const taken = await this.db.user.findFirst({ where: { email, NOT: { id: userId } }, select: { id: true } });
-    if (taken) throw new ConflictException('That email address is already used by another Quza account.');
+    if (taken) throw new ConflictException('That email address is already used by another Quzaurban account.');
   }
 
   private async expireStaleCodes(userId: string) {
@@ -550,7 +550,7 @@ export class ProfileChangesService {
     const to = definition.channel === 'OTP_NEW_EMAIL' ? newValue : user.email;
     const what =
       definition.field === 'EMAIL'
-        ? `change your Quza login email to <strong>${this.escape(newValue)}</strong>`
+        ? `change your Quzaurban login email to <strong>${this.escape(newValue)}</strong>`
         : `change your ${definition.label.toLowerCase()} to <strong>${this.escape(newValue)}</strong>`;
     await this.emailService.sendSellerSecurityCodeEmail({
       recipientEmail: to,

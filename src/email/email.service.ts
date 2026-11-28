@@ -60,6 +60,15 @@ interface SellerNoticeEmail {
   paragraphs: string[];
 }
 
+interface LoginAlertEmail {
+  recipientEmail: string;
+  recipientName: string;
+  /** Differentiates the copy and badge shown in the email. */
+  userType: 'buyer' | 'seller' | 'admin';
+  /** ISO timestamp of the login event. */
+  loginAt: string;
+}
+
 export interface EmailSendResult {
   sent: boolean;
   error?: string;
@@ -324,6 +333,108 @@ export class EmailService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Seller notice email failed (${email.subject}): ${message}`);
+    }
+  }
+
+  /**
+   * Sends a "new sign-in detected" security notice immediately after a
+   * successful login. Delivery failures are logged but never thrown — the
+   * login token has already been issued and must not be invalidated.
+   */
+  async sendLoginAlertEmail(email: LoginAlertEmail): Promise<void> {
+    const name = escapeHtml(email.recipientName);
+
+    const badgeColor: Record<LoginAlertEmail['userType'], string> = {
+      admin:  '#dc2626',   // red   — highest privilege
+      seller: '#d97706',   // amber — elevated
+      buyer:  '#2563eb',   // blue  — standard
+    };
+    const badgeLabel: Record<LoginAlertEmail['userType'], string> = {
+      admin:  'Admin',
+      seller: 'Seller',
+      buyer:  'Buyer',
+    };
+    const dashboardLabel: Record<LoginAlertEmail['userType'], string> = {
+      admin:  'Admin dashboard',
+      seller: 'Seller dashboard',
+      buyer:  'Your account',
+    };
+
+    // Format the timestamp in a human-readable, timezone-agnostic way.
+    const when = new Date(email.loginAt).toUTCString().replace(' GMT', ' UTC');
+
+    const badge = `<span style="display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600;letter-spacing:.4px;background:${badgeColor[email.userType]}22;color:${badgeColor[email.userType]};border:1px solid ${badgeColor[email.userType]}44">${badgeLabel[email.userType]}</span>`;
+
+    const html = `<!doctype html>
+<html>
+<body style="margin:0;padding:32px;background:#f1f5f9;font-family:Arial,sans-serif;color:#1e293b">
+  <main style="max-width:600px;margin:auto;background:#fff;border-radius:12px;overflow:hidden">
+
+    <!-- Header band -->
+    <div style="background:#1a1033;padding:24px 32px;display:flex;align-items:center;gap:12px">
+      <span style="font-size:20px;font-weight:700;color:#f8fafc;letter-spacing:-.3px">Quzaurban</span>
+      <span style="margin-left:8px">${badge}</span>
+    </div>
+
+    <!-- Body -->
+    <div style="padding:32px">
+      <h1 style="margin:0 0 8px;color:#1e293b;font-size:20px;font-weight:700">New sign-in to your account</h1>
+      <p style="margin:0 0 24px;color:#64748b;font-size:14px">We noticed a successful login to your Quzaurban ${badgeLabel[email.userType].toLowerCase()} account.</p>
+
+      <p style="margin:0 0 6px;font-size:15px">Hello ${name},</p>
+      <p style="margin:0 0 24px;font-size:15px;color:#475569">Your account was just signed in to. If this was you, no action is needed.</p>
+
+      <!-- Detail card -->
+      <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;font-size:14px">
+        <tbody>
+          <tr style="background:#f8fafc">
+            <td style="padding:12px 16px;color:#64748b;font-weight:600;width:40%;border-bottom:1px solid #e2e8f0">Account type</td>
+            <td style="padding:12px 16px;border-bottom:1px solid #e2e8f0">${badge}</td>
+          </tr>
+          <tr>
+            <td style="padding:12px 16px;color:#64748b;font-weight:600;border-bottom:1px solid #e2e8f0">Email</td>
+            <td style="padding:12px 16px;border-bottom:1px solid #e2e8f0;font-family:monospace">${escapeHtml(email.recipientEmail)}</td>
+          </tr>
+          <tr style="background:#f8fafc">
+            <td style="padding:12px 16px;color:#64748b;font-weight:600">Time</td>
+            <td style="padding:12px 16px">${when}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Warning block -->
+      <div style="margin:24px 0 0;padding:16px;background:#fff7ed;border-left:4px solid #ea580c;border-radius:0 6px 6px 0">
+        <p style="margin:0 0 6px;font-weight:700;color:#9a3412;font-size:14px">Wasn't you?</p>
+        <p style="margin:0;color:#9a3412;font-size:14px">Change your password immediately and contact us at <a href="mailto:support@quzaurban.com" style="color:#9a3412">support@quzaurban.com</a>. Do not share your password with anyone.</p>
+      </div>
+
+      <p style="margin:28px 0 0;font-size:14px;color:#64748b">
+        This is an automated security notice from Quzaurban.
+        You received it because a login was detected on your account.<br />
+        <a href="mailto:support@quzaurban.com" style="color:#6535cc">Contact support</a> if you have any questions.
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:20px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;text-align:center">
+      <p style="margin:0;font-size:12px;color:#94a3b8">© ${new Date().getFullYear()} Quzaurban. All rights reserved. · 123 Commerce Street, Nairobi, Kenya</p>
+    </div>
+
+  </main>
+</body>
+</html>`;
+
+    try {
+      await this.getTransporter().sendMail({
+        from: this.getFromAddress(),
+        to: email.recipientEmail,
+        subject: `New sign-in to your Quzaurban ${badgeLabel[email.userType].toLowerCase()} account`,
+        html,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Log only — a delivery failure must never roll back a completed login.
+      this.logger.warn(`Login alert email failed for ${email.recipientEmail}: ${message}`);
     }
   }
 }

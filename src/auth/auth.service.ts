@@ -112,6 +112,14 @@ export class AuthService {
     };
     const accessToken = this.jwtService.sign(payload);
 
+    // Fire-and-forget login alert — never blocks the response.
+    void this.emailService.sendLoginAlertEmail({
+      recipientEmail: admin.email,
+      recipientName: admin.name,
+      userType: 'admin',
+      loginAt: new Date().toISOString(),
+    });
+
     return {
       access_token: accessToken,
       admin: {
@@ -197,6 +205,14 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    // Fire-and-forget login alert — never blocks the response.
+    void this.emailService.sendLoginAlertEmail({
+      recipientEmail: user.email,
+      recipientName: user.name,
+      userType: 'seller',
+      loginAt: new Date().toISOString(),
+    });
+
     return this.generateToken(user.id, user.email);
   }
 
@@ -271,6 +287,17 @@ export class AuthService {
       this.prisma.client.authVerificationCode.update({ where: { id: verification.id }, data: { usedAt: new Date() } }),
       this.prisma.client.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() } }),
     ]);
+
+    // Send a login alert only for actual sign-ins, not first-time email verification.
+    if (purpose === 'LOGIN') {
+      void this.emailService.sendLoginAlertEmail({
+        recipientEmail: user.email,
+        recipientName: user.name,
+        userType: 'buyer',
+        loginAt: new Date().toISOString(),
+      });
+    }
+
     return this.generateToken(user.id, user.email);
   }
 

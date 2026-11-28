@@ -430,4 +430,124 @@ export class AnalyticsService {
       reviewCount: ratingAgg._count,
     };
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // UTM ANALYTICS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Platform-wide UTM overview for the admin dashboard.
+   * Covers all three visit tables: UtmVisit, ShopLinkVisit, ProductLinkVisit.
+   * @param days Number of days to look back (default 30).
+   */
+  async getUtmAnalytics(days = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const [utmVisits, shopLinkVisits, productLinkVisits] = await Promise.all([
+      this.client.utmVisit.findMany({
+        where: { visitedAt: { gte: since } },
+        select: {
+          utmSource: true,
+          utmMedium: true,
+          utmCampaign: true,
+          utmTerm: true,
+          utmContent: true,
+          deviceType: true,
+          visitedAt: true,
+        },
+      }),
+      this.client.shopLinkVisit.findMany({
+        where: { visitedAt: { gte: since }, utmSource: { not: null } },
+        select: {
+          utmSource: true,
+          utmMedium: true,
+          utmCampaign: true,
+          utmTerm: true,
+          utmContent: true,
+          deviceType: true,
+          visitedAt: true,
+        },
+      }),
+      this.client.productLinkVisit.findMany({
+        where: { visitedAt: { gte: since }, utmSource: { not: null } },
+        select: {
+          utmSource: true,
+          utmMedium: true,
+          utmCampaign: true,
+          utmTerm: true,
+          utmContent: true,
+          deviceType: true,
+          visitedAt: true,
+        },
+      }),
+    ]);
+
+    // Merge all three into one flat array
+    const all = [...utmVisits, ...shopLinkVisits, ...productLinkVisits];
+
+    return {
+      totalVisits: all.length,
+      bySource: this.groupBy(all, 'utmSource'),
+      byMedium: this.groupBy(all, 'utmMedium'),
+      byCampaign: this.groupBy(all, 'utmCampaign'),
+      byContent: this.groupBy(all, 'utmContent'),
+      byDevice: this.groupBy(all, 'deviceType'),
+      series: this.utmDailySeries(all, days),
+    };
+  }
+
+  /** Group rows by a string field, return sorted [{name, visits}] array. */
+  private groupBy(
+    rows: Array<Record<string, any>>,
+    field: string,
+  ): Array<{ name: string; visits: number }> {
+    const map = new Map<string, number>();
+    for (const row of rows) {
+      const key: string = row[field] ?? '(none)';
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return Array.from(map.entries())
+      .map(([name, visits]) => ({ name, visits }))
+      .sort((a, b) => b.visits - a.visits);
+  }
+
+  /** Build a daily visit series over the requested number of days. */
+  private utmDailySeries(
+    rows: Array<{ visitedAt: Date }>,
+    days: number,
+  ): Array<{ date: string; visits: number }> {
+    const map = new Map<string, number>();
+    // Pre-fill every day so there are no gaps in the chart
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      map.set(d.toISOString().slice(0, 10), 0);
+    }
+    for (const row of rows) {
+      const key = new Date(row.visitedAt).toISOString().slice(0, 10);
+      if (map.has(key)) map.set(key, (map.get(key)! + 1));
+    }
+    return Array.from(map.entries()).map(([date, visits]) => ({ date, visits }));
+  }
+
+  /**
+   * Record a general storefront UTM visit (called from the public visit endpoint).
+   * Only persists the row when at least utmSource is present.
+   */
+  async recordUtmVisit(data: {
+    shopId?: string;
+    utmSource: string;
+    utmMedium?: string;
+    utmCampaign?: string;
+    utmTerm?: string;
+    utmContent?: string;
+    referer?: string;
+    deviceType?: string;
+    browser?: string;
+    userAgent?: string;
+    ipHash?: string;
+  }) {
+    return this.client.utmVisit.create({ data });
+  }
 }

@@ -36,11 +36,20 @@ export class ShopLinksResolverController {
         req.connection.remoteAddress ||
         req.socket.remoteAddress;
 
+      const utmParams = {
+        utmSource:   req.query['utm_source']   as string | undefined,
+        utmMedium:   req.query['utm_medium']   as string | undefined,
+        utmCampaign: req.query['utm_campaign'] as string | undefined,
+        utmTerm:     req.query['utm_term']     as string | undefined,
+        utmContent:  req.query['utm_content']  as string | undefined,
+      };
+
       // Resolve the link (hybrid: token first, then slug)
       const { shop, linkId, resolvedVia } = await this.shopLinksService.resolveLinkByToken(
         tokenOrSlug,
         userAgent,
         ipAddress?.toString(),
+        utmParams,
       );
 
       // Return shop data with resolution info
@@ -88,10 +97,19 @@ export class ShopLinksResolverController {
         req.connection.remoteAddress ||
         req.socket.remoteAddress;
 
+      const utmParams = {
+        utmSource:   req.query['utm_source']   as string | undefined,
+        utmMedium:   req.query['utm_medium']   as string | undefined,
+        utmCampaign: req.query['utm_campaign'] as string | undefined,
+        utmTerm:     req.query['utm_term']     as string | undefined,
+        utmContent:  req.query['utm_content']  as string | undefined,
+      };
+
       const { shop, linkId, resolvedVia } = await this.shopLinksService.resolveLinkByToken(
         tokenOrSlug,
         userAgent,
         ipAddress?.toString(),
+        utmParams,
       );
 
       return {

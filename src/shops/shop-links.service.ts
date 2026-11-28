@@ -253,6 +253,13 @@ export class ShopLinksService {
     tokenOrSlug: string,
     userAgent?: string,
     ipAddress?: string,
+    utmParams?: {
+      utmSource?: string;
+      utmMedium?: string;
+      utmCampaign?: string;
+      utmTerm?: string;
+      utmContent?: string;
+    },
   ): Promise<{ shop: any; linkId?: string; resolvedVia: 'token' | 'slug' }> {
     let resolvedVia: 'token' | 'slug' = 'token';
 
@@ -280,7 +287,7 @@ export class ShopLinksService {
     // If token found and link is active, return it
     if (linkByToken && linkByToken.isActive) {
       // Record visit for token resolution
-      this.recordLinkVisit(linkByToken.id, userAgent, ipAddress).catch((err) => {
+      this.recordLinkVisit(linkByToken.id, userAgent, ipAddress, utmParams).catch((err) => {
         console.error('Error recording link visit:', err);
       });
 
@@ -339,6 +346,13 @@ export class ShopLinksService {
     linkId: string,
     userAgent?: string,
     ipAddress?: string,
+    utmParams?: {
+      utmSource?: string;
+      utmMedium?: string;
+      utmCampaign?: string;
+      utmTerm?: string;
+      utmContent?: string;
+    },
   ): Promise<void> {
     const { deviceType, browser } = this.parseUserAgent(userAgent);
     const ipHash = ipAddress ? this.hashIp(ipAddress) : null;
@@ -352,7 +366,7 @@ export class ShopLinksService {
       },
     });
 
-    // Record visit details
+    // Record visit details with UTM params
     await this.client.shopLinkVisit.create({
       data: {
         shopLinkId: linkId,
@@ -360,6 +374,11 @@ export class ShopLinksService {
         deviceType,
         browser,
         ipHash,
+        utmSource:   utmParams?.utmSource   ?? null,
+        utmMedium:   utmParams?.utmMedium   ?? null,
+        utmCampaign: utmParams?.utmCampaign ?? null,
+        utmTerm:     utmParams?.utmTerm     ?? null,
+        utmContent:  utmParams?.utmContent  ?? null,
       },
     });
   }

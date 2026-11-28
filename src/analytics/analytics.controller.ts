@@ -1,9 +1,11 @@
-import { Controller, Get, Query, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, UseGuards, BadRequestException } from '@nestjs/common';
 import { AnalyticsService } from './analytics.service';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { SkipGuard } from '../auth/decorators/skip-guard.decorator';
 import { PrismaService } from '../prisma.service';
+import * as crypto from 'crypto';
 
 @Controller('analytics')
 @UseGuards(PermissionsGuard)
@@ -135,5 +137,70 @@ export class AnalyticsController {
     }
 
     return this.analyticsService.getOrderStatus();
+  }
+
+  /**
+   * GET /analytics/utm?days=30
+   * Platform-wide UTM visit breakdown for the admin sales dashboard.
+   * Requires the can_view_reports permission (same as other analytics routes).
+   */
+  @Get('utm')
+  @RequirePermissions('can_view_reports')
+  async getUtmAnalytics(@CurrentUser() user: any, @Query('days') daysParam?: string) {
+    if (!user.isAdmin) {
+      throw new BadRequestException('UTM analytics are only available to platform admins.');
+    }
+    const allowed = [7, 14, 30, 60, 90];
+    const days = allowed.includes(Number(daysParam)) ? Number(daysParam) : 30;
+    return this.analyticsService.getUtmAnalytics(days);
+  }
+
+  /**
+   * POST /analytics/utm/visit
+   * Public endpoint — the storefront webapp calls this on page load whenever
+   * utm_source is present in the URL. No auth required.
+   */
+  @Post('utm/visit')
+  @SkipGuard()
+  async recordUtmVisit(@Body() body: any, @Query() query: any) {
+    // Accept params from either the JSON body or query string
+    const utmSource: string = body.utm_source ?? query.utm_source ?? '';
+    if (!utmSource) return { recorded: false };
+
+    const parseDeviceType = (ua?: string) => {
+      if (!ua) return undefined;
+      if (/mobile|android|iphone|ipod/i.test(ua)) return 'mobile';
+      if (/tablet|ipad/i.test(ua)) return 'tablet';
+      return 'desktop';
+    };
+    const parseBrowser = (ua?: string) => {
+      if (!ua) return undefined;
+      if (/edge/i.test(ua)) return 'Edge';
+      if (/chrome/i.test(ua)) return 'Chrome';
+      if (/safari/i.test(ua)) return 'Safari';
+      if (/firefox/i.test(ua)) return 'Firefox';
+      if (/opera|opr/i.test(ua)) return 'Opera';
+      return undefined;
+    };
+
+    const userAgent: string | undefined = body.userAgent;
+    const ipRaw: string | undefined = body.ipHint; // caller may omit for privacy
+    const ipHash = ipRaw ? crypto.createHash('sha256').update(ipRaw).digest('hex') : undefined;
+
+    await this.analyticsService.recordUtmVisit({
+      shopId: body.shopId ?? undefined,
+      utmSource,
+      utmMedium: body.utm_medium ?? undefined,
+      utmCampaign: body.utm_campaign ?? undefined,
+      utmTerm: body.utm_term ?? undefined,
+      utmContent: body.utm_content ?? undefined,
+      referer: body.referer ?? undefined,
+      deviceType: parseDeviceType(userAgent),
+      browser: parseBrowser(userAgent),
+      userAgent,
+      ipHash,
+    });
+
+    return { recorded: true };
   }
 }

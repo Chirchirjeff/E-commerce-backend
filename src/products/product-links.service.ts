@@ -297,6 +297,13 @@ export class ProductLinksService {
     token: string,
     userAgent?: string,
     ipAddress?: string,
+    utmParams?: {
+      utmSource?: string;
+      utmMedium?: string;
+      utmCampaign?: string;
+      utmTerm?: string;
+      utmContent?: string;
+    },
   ): Promise<{ product: any; linkId: string }> {
     const link = await this.client.productLink.findUnique({
       where: { token },
@@ -315,7 +322,7 @@ export class ProductLinksService {
     }
 
     // Record visit
-    this.recordLinkVisit(link.id, userAgent, ipAddress).catch((err) => {
+    this.recordLinkVisit(link.id, userAgent, ipAddress, utmParams).catch((err) => {
       console.error('Error recording product link visit:', err);
     });
 
@@ -332,6 +339,13 @@ export class ProductLinksService {
     linkId: string,
     userAgent?: string,
     ipAddress?: string,
+    utmParams?: {
+      utmSource?: string;
+      utmMedium?: string;
+      utmCampaign?: string;
+      utmTerm?: string;
+      utmContent?: string;
+    },
   ): Promise<void> {
     const { deviceType, browser } = this.parseUserAgent(userAgent);
     const ipHash = ipAddress ? this.hashIp(ipAddress) : null;
@@ -345,7 +359,7 @@ export class ProductLinksService {
       },
     });
 
-    // Record visit details
+    // Record visit details with UTM params
     await this.client.productLinkVisit.create({
       data: {
         productLinkId: linkId,
@@ -353,6 +367,11 @@ export class ProductLinksService {
         deviceType,
         browser,
         ipHash,
+        utmSource:   utmParams?.utmSource   ?? null,
+        utmMedium:   utmParams?.utmMedium   ?? null,
+        utmCampaign: utmParams?.utmCampaign ?? null,
+        utmTerm:     utmParams?.utmTerm     ?? null,
+        utmContent:  utmParams?.utmContent  ?? null,
       },
     });
   }

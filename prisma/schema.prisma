@@ -187,6 +187,7 @@ model Shop {
   collections SellerCollection[]
   tags        SellerTag[]
   shopLinks   ShopLink[]
+  utmVisits   UtmVisit[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -553,11 +554,20 @@ model ProductLinkVisit {
   // Location (if available)
   country           String?
   region            String?
+
+  // UTM parameters (Google / Urchin Tracking Module)
+  utmSource         String? // e.g. instagram, facebook, newsletter
+  utmMedium         String? // e.g. social, email, cpc
+  utmCampaign       String? // e.g. summer_sale, launch_2026
+  utmTerm           String? // paid-search keyword
+  utmContent        String? // A/B variant identifier
   
   visitedAt         DateTime @default(now())
   
   @@index([productLinkId])
   @@index([visitedAt])
+  @@index([utmSource])
+  @@index([utmCampaign])
   @@map("product_link_visits")
 }
 
@@ -578,12 +588,58 @@ model ShopLinkVisit {
   // Location (if available)
   country           String?
   region            String?
+
+  // UTM parameters (Google / Urchin Tracking Module)
+  utmSource         String? // e.g. instagram, facebook, newsletter
+  utmMedium         String? // e.g. social, email, cpc
+  utmCampaign       String? // e.g. summer_sale, launch_2026
+  utmTerm           String? // paid-search keyword
+  utmContent        String? // A/B variant identifier
   
   visitedAt         DateTime @default(now())
   
   @@index([shopLinkId])
   @@index([visitedAt])
+  @@index([utmSource])
+  @@index([utmCampaign])
   @@map("shop_link_visits")
+}
+
+// ========================================
+// UTM VISITS (general storefront entry tracking)
+// ========================================
+
+// Captures UTM parameters for every storefront entry that arrives with at
+// least one utm_* query param — regardless of whether the visitor came via a
+// tracked ShopLink / ProductLink token.
+model UtmVisit {
+  id          String   @id @default(uuid())
+
+  // The shop being visited (nullable — could be a homepage or unknown entry)
+  shopId      String?
+  shop        Shop?    @relation(fields: [shopId], references: [id], onDelete: SetNull)
+
+  // UTM parameters (at least utmSource should be present to record the row)
+  utmSource   String   // utm_source — required; identifies the traffic source
+  utmMedium   String?  // utm_medium — e.g. social, email, cpc, referral
+  utmCampaign String?  // utm_campaign — campaign name or ID
+  utmTerm     String?  // utm_term — paid keyword
+  utmContent  String?  // utm_content — A/B variant or link differentiator
+
+  // Non-identifying visitor context
+  referer     String?
+  deviceType  String?  // mobile, tablet, desktop
+  browser     String?
+  userAgent   String?
+  ipHash      String?  // SHA-256 of IP for deduplication, never stored raw
+
+  visitedAt   DateTime @default(now())
+
+  @@index([shopId])
+  @@index([utmSource])
+  @@index([utmCampaign])
+  @@index([visitedAt])
+  @@map("utm_visits")
 }
 
 // ========================================

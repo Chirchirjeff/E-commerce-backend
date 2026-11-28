@@ -200,6 +200,11 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    if (!user.password) {
+      throw new UnauthorizedException(
+        'This account uses Google sign-in. Please continue with Google.',
+      );
+    }
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid email or password');
@@ -262,6 +267,11 @@ export class AuthService {
         'No buyer account is registered with this email. Please create an account before paying.',
       );
     }
+    if (!user.password) {
+      throw new UnauthorizedException(
+        'This account uses Google sign-in. Please continue with Google.',
+      );
+    }
     if (!(await bcrypt.compare(password, user.password))) {
       throw new UnauthorizedException('Invalid email or password');
     }
@@ -299,6 +309,137 @@ export class AuthService {
     }
 
     return this.generateToken(user.id, user.email);
+  }
+
+  // ========================================
+  // GOOGLE OAUTH (buyers & sellers share the same User table)
+  // ========================================
+
+  /**
+   * Mobile Google OAuth — called by the Mall app.
+   *
+   * The app obtains an idToken directly from Google via
+   * @react-native-google-signin/google-signin, then POSTs it here.
+   * We verify the token with google-auth-library, extract the profile, and
+   * delegate to googleOAuthLogin() which handles find-or-create.
+   */
+  async googleMobileLogin(idToken: string) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { OAuth2Client } = require('google-auth-library') as typeof import('google-auth-library');
+    const client = new OAuth2Client();
+
+    let ticket: import('google-auth-library').LoginTicket;
+    try {
+      ticket = await client.verifyIdToken({
+        idToken,
+        // Accept tokens issued for any of our registered client IDs.
+        audience: [
+          process.env.GOOGLE_CLIENT_ID!,
+          process.env.GOOGLE_ANDROID_CLIENT_ID,
+          process.env.GOOGLE_IOS_CLIENT_ID,
+        ].filter(Boolean) as string[],
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid Google ID token');
+    }
+
+    const payload = ticket.getPayload();
+    if (!payload?.sub) {
+      throw new UnauthorizedException('Could not read Google profile from token');
+    }
+
+    return this.googleOAuthLogin({
+      googleId: payload.sub,
+      email: payload.email,
+      name: payload.name ?? payload.email ?? 'Google User',
+      avatarUrl: payload.picture,
+    });
+  }
+
+  /**
+   * Called by GoogleStrategy after Google confirms the user's identity.
+   *
+   * Behaviour:
+   *  1. Existing account matched by googleId  → sign in immediately.
+   *  2. Existing account matched by email     → link the googleId, sign in.
+   *  3. No matching account                   → create one, skip OTP flow
+   *     (Google already verified the email).
+   *
+   * Returns { access_token, user, isNewUser } so the controller can redirect
+   * the browser with the token and optionally show a welcome screen.
+   */
+  async googleOAuthLogin(profile: {
+    googleId: string;
+    email?: string;
+    name: string;
+    avatarUrl?: string;
+  }) {
+    if (!profile.email) {
+      throw new UnauthorizedException(
+        'Your Google account does not have a verified email address.',
+      );
+    }
+
+    const email = profile.email.trim().toLowerCase();
+
+    // 1 & 2 — look up by googleId first, fall back to email
+    let user = await this.prisma.client.user.findFirst({
+      where: {
+        OR: [{ googleId: profile.googleId }, { email }],
+      },
+      select: {
+        id: true,
+        email: true,
+        googleId: true,
+        emailVerifiedAt: true,
+        name: true,
+        avatarUrl: true,
+      },
+    });
+
+    let isNewUser = false;
+
+    if (user) {
+      // Link googleId when the account was found by email but hasn't been
+      // linked yet (first time signing in with Google on a password account).
+      if (!user.googleId) {
+        await this.prisma.client.user.update({
+          where: { id: user.id },
+          data: {
+            googleId: profile.googleId,
+            // Google has verified this email; stamp it if not already set.
+            emailVerifiedAt: user.emailVerifiedAt ?? new Date(),
+          },
+        });
+      }
+    } else {
+      // 3 — create a brand-new account; no password, no OTP needed.
+      isNewUser = true;
+      user = await this.prisma.client.user.create({
+        data: {
+          email,
+          name: profile.name,
+          googleId: profile.googleId,
+          avatarUrl: profile.avatarUrl ?? null,
+          username: await this.availableUsername(usernameBase(profile.name, email)),
+          // Email is pre-verified by Google.
+          emailVerifiedAt: new Date(),
+          // No password — this account uses Google exclusively until the user
+          // sets one via the password-reset flow.
+        },
+        select: {
+          id: true,
+          email: true,
+          googleId: true,
+          emailVerifiedAt: true,
+          name: true,
+          avatarUrl: true,
+        },
+      });
+    }
+
+    const { access_token } = this.generateToken(user.id, user.email);
+    return { access_token, user, isNewUser };
   }
 
   // ── Password reset (any account in the users table: buyers and sellers) ──
@@ -641,6 +782,11 @@ export class AuthService {
     }
     const user = await this.prisma.client.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException('User not found');
+    if (!user.password) {
+      throw new BadRequestException(
+        'This account uses Google sign-in and has no password. Use the password-reset flow to set one first.',
+      );
+    }
     if (!(await bcrypt.compare(password, user.password))) {
       throw new BadRequestException('Your current password is incorrect');
     }
@@ -726,6 +872,11 @@ export class AuthService {
     if (next.length < 8) throw new BadRequestException('New password must be at least 8 characters');
     const user = await this.prisma.client.user.findUnique({ where: { id: userId }, select: { password: true } });
     if (!user) throw new UnauthorizedException('User not found');
+    if (!user.password) {
+      throw new BadRequestException(
+        'This account uses Google sign-in and has no password. Use the password-reset flow to set one.',
+      );
+    }
     if (!(await bcrypt.compare(current, user.password))) {
       throw new BadRequestException('Your current password is incorrect');
     }

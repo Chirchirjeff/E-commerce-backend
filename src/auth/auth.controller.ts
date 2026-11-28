@@ -9,6 +9,7 @@ import {
   Body,
   UseGuards,
   Req,
+  Res,
   HttpCode,
   HttpStatus,
   Query,
@@ -16,6 +17,8 @@ import {
   UseInterceptors,
   BadRequestException,
 } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { AuthService } from './auth.service';
@@ -184,7 +187,69 @@ export class AuthController {
   }
 
   /**
-   * Get current admin profile — protected
+   * POST /auth/google/mobile
+   * Called by the Mall React Native app. The app signs in with Google natively
+   * and POSTs the resulting idToken here for verification. Returns a JWT.
+   */
+  @Post('google/mobile')
+  @SkipGuard()
+  @HttpCode(HttpStatus.OK)
+  async googleMobileLogin(@Body() body: { idToken: string }) {
+    if (!body?.idToken) {
+      throw new BadRequestException('idToken is required');
+    }
+    return this.authService.googleMobileLogin(body.idToken);
+  }
+
+  /**
+   * GET /auth/google?app=seller|buyer
+   * Initiates the Google OAuth redirect. The `app` param is forwarded as the
+   * OAuth `state` so the callback knows which frontend to redirect to.
+   */
+  @Get('google')
+  @SkipGuard()
+  googleAuth(@Query('app') app: string, @Req() req: any, @Res() res: Response) {
+    const state = app === 'seller' ? 'seller' : 'buyer';
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const passport = require('passport') as typeof import('passport');
+    passport.authenticate('google', {
+      scope: ['email', 'profile'],
+      state,
+      session: false,
+    } as any)(req, res, () => {});
+  }
+
+  /**
+   * GET /auth/google/callback
+   * Google redirects here. Passport validates the code, GoogleStrategy calls
+   * googleOAuthLogin(), the result sits on req.user. We then redirect the
+   * browser to the right frontend with ?token=<jwt>.
+   */
+  @Get('google/callback')
+  @SkipGuard()
+  @UseGuards(AuthGuard('google'))
+  async googleAuthCallback(
+    @Req() req: any,
+    @Query('state') state: string,
+    @Res() res: Response,
+  ) {
+    const { access_token } = req.user as {
+      access_token: string;
+      isNewUser: boolean;
+    };
+
+    const isSeller = state === 'seller';
+    const baseUrl = isSeller
+      ? (process.env.SELLER_APP_URL ?? 'http://localhost:3002')
+      : (process.env.WEBAPP_URL ?? 'http://localhost:3000');
+
+    return res.redirect(
+      `${baseUrl}/auth/google/callback?token=${encodeURIComponent(access_token)}`,
+    );
+  }
+
+  /**
+   * GET /auth/admin/me — protected
    */
   @Get('admin/me')
   @UseGuards(JwtAuthGuard)

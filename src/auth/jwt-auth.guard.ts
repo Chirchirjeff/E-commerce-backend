@@ -6,14 +6,14 @@ import { SKIP_GUARD_KEY, OPTIONAL_AUTH_KEY } from './decorators/skip-guard.decor
 
 declare global {
   namespace Express {
-    interface Request {
-      user?: {
-        id: string;
-        email: string;
-        role?: string;
-        permissions?: string[];
-        isAdmin?: boolean;
-      };
+    // Extend passport's User interface instead of redeclaring `user`
+    interface User {
+      id: string;
+      email: string;
+      role?: string;
+      permissions?: string[];
+      isAdmin?: boolean;
+      shopId?: string;
     }
   }
 }

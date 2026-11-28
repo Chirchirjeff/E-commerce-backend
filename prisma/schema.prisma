@@ -92,13 +92,16 @@ model RolePermission {
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
-  password  String
+  /// Null for accounts created exclusively via Google OAuth.
+  password  String?
   name      String
   phone     String?
   /// Public handle shown across Quza (stored lowercase, e.g. "jane.doe").
   username  String?  @unique
   /// Square profile photo on Cloudinary.
   avatarUrl String?
+  /// Google OAuth subject ID — present only on accounts linked to Google.
+  googleId  String?  @unique
   // Buyers must verify their email before they can place and view orders.
   emailVerifiedAt DateTime?
   shops     Shop[]

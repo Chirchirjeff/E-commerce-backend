@@ -99,7 +99,7 @@ export class ProfileChangesService {
 
     // Step-up authentication: always re-confirm the password for account changes.
     // 400 (not 401) so the seller app doesn't treat a typo as an expired session.
-    if (!body.currentPassword || !(await bcrypt.compare(body.currentPassword, user.password))) {
+    if (!body.currentPassword || !user.password || !(await bcrypt.compare(body.currentPassword, user.password))) {
       throw new BadRequestException('Your current password is incorrect.');
     }
 
